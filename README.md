@@ -79,7 +79,7 @@ bun install
 bun run deploy
 ```
 
-The `deploy` command runs **remote D1 migrations → Vite build → Wrangler deploy**. It is equivalent to `bun run deploy:publish`. Failed migration steps prevent subsequent deployment steps.
+The `deploy` command directly runs **remote D1 migrations → Vite build → Wrangler deploy**. Each step must succeed before the next begins. For database migrations only, use `bun run db:migrate`.
 
 Because `workers_dev` is disabled, configure a **custom domain or Worker route** in Cloudflare before opening the app.
 

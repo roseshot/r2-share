@@ -90,10 +90,10 @@ describe("environment-injected D1 deployment", () => {
     expect(scripts["db:migrate"]).toContain("configure-d1.mjs");
     expect(scripts["db:migrate"]).not.toContain("--require-id");
     expect(scripts["db:migrate"]).toContain("migrations apply DB --remote");
-    expect(scripts["deploy:publish"]).toBe("bun run db:migrate && bun run build && wrangler deploy");
+    expect(scripts.deploy).toBe("bun run db:migrate && bun run build && wrangler deploy");
+    expect(scripts["deploy:publish"]).toBeUndefined();
     expect(scripts.dev).not.toContain("provision-app.mjs");
-    expect(scripts["deploy:publish"]).not.toContain("provision-app.mjs");
-    expect(scripts.deploy).toBe("bun run deploy:publish");
+    expect(scripts.deploy).not.toContain("provision-app.mjs");
     expect(scripts.build).toContain("configure-d1.mjs");
     const schema = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
     expect(schema).not.toMatch(/DROP\s+TABLE|DELETE\s+FROM|storage_reset|import_progress/i);
