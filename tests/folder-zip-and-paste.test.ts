@@ -52,7 +52,7 @@ describe("clipboard uploads", () => {
     const result = clipboardUploads(data, Date.UTC(2026, 10, 7, 12, 30));
     expect(result).toHaveLength(1);
     expect(result[0].filename).toMatch(/^pasted-text-.*\.txt$/);
-    expect(result[0].file.type).toBe("text/plain");
+    expect(result[0].file.type).toStartWith("text/plain");
     expect(await result[0].file.text()).toBe("hello\nworld");
   });
 

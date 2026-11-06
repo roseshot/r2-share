@@ -227,7 +227,7 @@ describe("independent multiple share links", () => {
     const app = fixture();
     await app.createFile();
     const invalid = [
-      { filename: "" }, { filename: "x".repeat(241) }, { filename: "bad\\nname" },
+      { filename: "" }, { filename: "x".repeat(241) }, { filename: "bad\nname" },
       { fileExpiresAt: "not-a-date" },
       { fileExpiresAt: new Date(Date.now() - 86400000).toISOString() },
       { fileExpiresAt: false },
