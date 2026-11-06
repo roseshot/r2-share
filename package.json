@@ -29,7 +29,7 @@
     "@tailwindcss/vite": "^4.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^6.2.1",
     "tailwindcss": "^4.1.0",
     "typescript": "7.1.0-dev.20261103.1",
     "vite": "^7.0.0",
