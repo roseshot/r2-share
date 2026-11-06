@@ -1,0 +1,5 @@
+# Local Worker secrets. Never commit .dev.vars.
+# Generate with: openssl rand -base64 32
+APP_MASTER_KEY="replace-with-32-random-bytes-base64"
+ADMIN_PATH="replace-with-a-private-admin-url-segment"
+ADMIN_PASSWORD="replace-with-a-strong-unique-password"

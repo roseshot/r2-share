@@ -1,0 +1,57 @@
+export type Mode = "public" | "protected";
+export type StorageBackend = "b2" | "r2";
+export interface FileChecksums {
+  sha256: string;
+}
+export type Share = {
+  id: string;
+  mode: Mode;
+  filename?: string;
+  size?: number;
+  mime?: string;
+  checksums?: FileChecksums;
+  originalModifiedAt?: string;
+};
+export type ManagedFile = Share & {
+  backend: StorageBackend;
+  filename: string;
+  size: number;
+  mime: string;
+  fileExpiresAt: string | null;
+  shareExpiresAt: string | null;
+  createdAt: string;
+  revision: string;
+};
+export const durations = [
+  { seconds: 0, label: "Never" },
+  { seconds: 3600, label: "1 hour" },
+  { seconds: 86400, label: "24 hours" },
+  { seconds: 259200, label: "3 days" },
+  { seconds: 604800, label: "7 days" }
+];
+export function sizeText(n: number): string {
+  if (n < 1024) return n + " B";
+  if (n < 1024 ** 2) return (n / 1024).toFixed(1) + " KiB";
+  return (n / (1024 ** 2)).toFixed(1) + " MiB";
+}
+export function timeText(iso: string | null): string {
+  if (iso === null) return "Never";
+  const left = Math.max(0, Date.parse(iso) - Date.now());
+  if (left <= 0) return "Expired";
+  if (left < 3600000) return Math.ceil(left / 60000) + " minutes";
+  if (left < 86400000) return Math.ceil(left / 3600000) + " hours";
+  return Math.ceil(left / 86400000) + " days";
+}
+export async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const result = await fetch(url, { credentials: "same-origin", cache: "no-store", ...options });
+  const body: unknown = await result.json().catch(() => null);
+  if (!result.ok) {
+    const message = body && typeof body === "object" && "error" in body &&
+      typeof body.error === "string" ? body.error : "Request failed (" + result.status + ")";
+    throw new Error(message);
+  }
+  return body as T;
+}
+export function jsonBody(value: unknown): RequestInit {
+  return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) };
+}
