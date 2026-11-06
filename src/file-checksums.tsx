@@ -82,7 +82,6 @@ export function FileChecksums({ checksums, filename }: { checksums: FileChecksum
               <PlatformIcon size={17} className="shrink-0 text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
               {platform}
             </h3>
-            <p className="font-mono text-xs text-zinc-500">SHA-256</p>
             <div className="flex items-center gap-1.5 rounded-lg bg-zinc-100 p-1.5 dark:bg-zinc-950/70">
               <pre tabIndex={0} title="Click to select the entire command"
                 aria-label={platform + " SHA-256 command. Click to select all text."}

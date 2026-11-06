@@ -151,6 +151,14 @@ describe("checksum display and platform instructions", () => {
     expect(source).toContain('title="Click to select the entire command"');
   });
 
+  test("shows platform commands without a redundant SHA-256 sublabel", () => {
+    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    expect(source).toContain("How to verify SHA-256");
+    expect(source).toContain("{platform}");
+    expect(source).toContain("{sha256}");
+    expect(source).not.toContain('<p className="font-mono text-xs text-zinc-500">SHA-256</p>');
+  });
+
   test("includes platform icons for macOS, Linux and Windows", () => {
     const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain("Apple");
