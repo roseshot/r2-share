@@ -112,10 +112,12 @@ describe("checksum display and platform instructions", () => {
     expect(source).not.toContain("original creation date");
   });
 
-  test("uses the SHA-256 icon without altering copy behavior", () => {
+  test("uses a hash icon for SHA-256 without duplicating icons or altering copy behavior", () => {
     const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
-    expect(source).toContain("<Fingerprint size={15}");
-    expect(source).toContain("<ShieldCheck size={17}");
+    expect(source).toContain('import { Apple, Check, ChevronDown, ClipboardCopy, Hash, PanelsTopLeft, Terminal } from "lucide-react"');
+    expect(source).toContain('<Hash size={17} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />');
+    expect(source).not.toContain("<ShieldCheck");
+    expect(source).not.toContain("<Fingerprint");
     expect(source).toContain('onClick={() => void copy(checksums.sha256, "SHA-256")}');
   });
 

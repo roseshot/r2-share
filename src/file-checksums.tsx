@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Apple, Check, ChevronDown, ClipboardCopy, Fingerprint, PanelsTopLeft, ShieldCheck, Terminal } from "lucide-react";
+import { Apple, Check, ChevronDown, ClipboardCopy, Hash, PanelsTopLeft, Terminal } from "lucide-react";
 import { Button } from "./ui";
 import type { FileChecksums } from "./lib";
 
@@ -51,11 +51,10 @@ export function FileChecksums({ checksums, filename }: { checksums: FileChecksum
 
   return <section className="mt-6" aria-label="SHA-256">
     <h2 className="mb-3 flex items-center gap-2 text-sm font-medium">
-      <ShieldCheck size={17} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
+      <Hash size={17} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
       SHA-256
     </h2>
     <div className="flex items-center gap-1.5 rounded-lg bg-zinc-100 p-1.5 pl-2.5 text-xs leading-5 text-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300">
-      <Fingerprint size={15} className="shrink-0 text-zinc-500" aria-hidden="true" />
       <code className="min-w-0 flex-1 break-all font-mono select-all">{checksums.sha256}</code>
       <Button size="icon" variant="ghost" className="shrink-0"
         aria-label="Copy SHA-256 checksum" title="Copy SHA-256"
