@@ -87,8 +87,10 @@ describe("multiple file and folder selection", () => {
   });
 
   test("falls back to normal dropped files when directory entries are unavailable", async () => {
-    const transfer = { items: [{ kind: "file" }], files: [makeFile("one.png"), makeFile("two.png")] }
-      as unknown as DataTransfer;
+    const transfer = {
+      items: [{ kind: "file" }],
+      files: [makeFile("one.png"), makeFile("two.png")],
+    } as unknown as DataTransfer;
     const result = await droppedFiles(transfer);
     expect(result.map(item => item.filename)).toEqual(["one.png", "two.png"]);
   });
