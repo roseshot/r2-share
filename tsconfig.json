@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2025",
+    "target": "ES2026",
     "lib": [
       "ES2026",
       "DOM",
