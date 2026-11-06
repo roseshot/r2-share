@@ -223,6 +223,18 @@ After successful pull-request CI, `.github/workflows/dependabot-auto-merge.yml` 
 
 This is a post-CI merge action, not GitHub's per-PR `auto_merge` toggle. Protect `main` with a required **`validate`** CI status check in repository settings so that other merge paths are also gated; repository administration permissions are needed to configure branch protection.
 
+## Download and preview experience
+
+Downloads and media previews support single HTTP byte ranges, forwarded through the
+authorized Worker to the configured B2/R2 bucket. The Worker rejects invalid
+ranges with HTTP 416 and does not provide multipart byte-range responses.
+
+The share page checks download availability with an authorized HEAD request
+before navigating to the download endpoint, so missing files and expired
+access codes can be explained inline. Preview errors provide a fallback
+download link. Download authorization, access codes, and file expiration still
+apply to HEAD and partial requests.
+
 ## Operations and security
 
 - **Private buckets and least-privilege credentials:** grant only required bucket/object operations; do not expose B2/R2 credentials to the browser.
@@ -230,7 +242,7 @@ This is a post-CI merge action, not GitHub's per-PR `auto_merge` toggle. Protect
 - **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**; large backlogs require subsequent runs.
 - **Data deletion:** file deletion targets the specific recorded storage ID and the `files/<file-id>` object. It does not enumerate or purge unrelated bucket objects.
 - **Monitoring:** check Cloudflare deployment logs, Worker errors, D1 migrations, and scheduled cleanup. Treat GitHub CI and Cloudflare deployment as separate status checks.
-- **Resource limits:** maximum upload size is **90 MiB**; the administrator file list returns at most **500 files**. HTTP Range/partial-content downloads are **not implemented**.
+- **Resource limits:** maximum upload size is **90 MiB**; the administrator file list returns at most **500 files**. single HTTP byte ranges are supported with **206 Partial Content** (multipart ranges return **416**).
 - **Credentials and recovery:** keep a secure backup of `APP_MASTER_KEY`, use long unique administrator credentials, and test D1 backups and object storage recovery before production changes.
 - **Network exposure:** `workers_dev` and preview URLs are off; configure your own Worker route/domain.
 

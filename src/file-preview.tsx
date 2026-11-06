@@ -55,7 +55,7 @@ export function FilePreview({ file, id }: { file: Share; id: string }) {
         <Eye size={17} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
         File preview
       </h2>
-      <Button size="sm" variant="ghost" onClick={() => setOpened(value => !value)}
+      <Button size="sm" variant="ghost" onClick={() => { if (!opened) setError(""); setOpened(value => !value); }}
         aria-expanded={opened} aria-controls="preview-details">
         {opened ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         {opened ? "Hide" : "Preview"}
@@ -65,22 +65,29 @@ export function FilePreview({ file, id }: { file: Share; id: string }) {
       {busy && <p role="status" className="flex items-center gap-2 text-sm text-zinc-500">
         <LoaderCircle size={16} className="animate-spin" />Loading preview…
       </p>}
-      {error && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{error}</p>}
+      {error && <div role="alert" className="space-y-2 text-sm text-amber-700 dark:text-amber-300">
+        <p>{error} Download the file instead.</p>
+        <a className="inline-flex h-9 items-center rounded-xl border border-amber-400/30 px-3 text-sm font-medium"
+          href={"/api/files/" + id + "/download"}>Download file</a>
+      </div>}
       {format.kind === "text" && text !== null && !busy &&
         <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-zinc-200 bg-zinc-100 p-4 font-mono text-xs leading-6 text-zinc-800 dark:border-white/10 dark:bg-zinc-950/60 dark:text-zinc-200">
           {text || "Empty file"}{text.length === 200000 ? "\n\n[Preview truncated]" : ""}
         </pre>}
-      {format.kind === "image" &&
+      {!error && format.kind === "image" &&
         <img src={previewURL} alt={"Preview of " + file.filename} loading="lazy"
+          onError={() => setError("Preview unavailable.")}
           className="mx-auto max-h-96 max-w-full rounded-xl border border-zinc-200 object-contain dark:border-white/10" />}
-      {format.kind === "pdf" &&
+      {!error && format.kind === "pdf" &&
         <iframe title={"Preview of " + file.filename} src={previewURL}
+          onError={() => setError("Preview unavailable.")}
           sandbox="allow-scripts allow-downloads"
           className="h-96 w-full rounded-xl border border-zinc-200 bg-white dark:border-white/10" />}
-      {format.kind === "audio" &&
-        <audio src={previewURL} controls preload="metadata" className="w-full" aria-label="Audio preview" />}
-      {format.kind === "video" &&
-        <video src={previewURL} controls preload="metadata"
+      {!error && format.kind === "audio" &&
+        <audio src={previewURL} controls preload="metadata" className="w-full" aria-label="Audio preview"
+          onError={() => setError("Preview unavailable.")} />}
+      {!error && format.kind === "video" &&
+        <video src={previewURL} controls preload="metadata" onError={() => setError("Preview unavailable.")}
           className="max-h-96 w-full rounded-xl bg-black" aria-label="Video preview" />}
     </div>}
   </section>;

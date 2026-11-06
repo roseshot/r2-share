@@ -7,6 +7,8 @@ export interface ObjectInfo {
 }
 export interface ObjectBody extends ObjectInfo {
   body: ReadableStream<Uint8Array>;
+  status?: 200 | 206;
+  contentRange?: string;
 }
 export interface ObjectPage {
   objects: { key: string; uploaded: Date }[];
@@ -14,7 +16,7 @@ export interface ObjectPage {
   cursor?: string;
 }
 export interface ObjectStore {
-  get(key: string): Promise<ObjectBody | null>;
+  get(key: string, range?: string): Promise<ObjectBody | null>;
   head(key: string): Promise<ObjectInfo | null>;
   put(key: string, body: string | ReadableStream<Uint8Array>, contentType: string, length: number): Promise<ObjectInfo>;
   delete(keys: string | string[]): Promise<void>;
@@ -109,8 +111,9 @@ function s3Store(options: {
     return response;
   }
   return {
-    async get(key) {
-      const result = await signed("GET", urlFor(key));
+    async get(key, range) {
+      const result = await signed("GET", urlFor(key),
+        range ? { headers: { Range: range } } : {});
       if (result.status === 404) return null;
       await requireOk(result, "GET");
       if (!result.body) throw new Error(`Empty ${label} download stream`);
@@ -119,6 +122,8 @@ function s3Store(options: {
       return {
         body: result.body,
         size,
+        status: result.status === 206 ? 206 : 200,
+        contentRange: result.headers.get("content-range") ?? undefined,
         uploaded: result.headers.get("last-modified") ? new Date(result.headers.get("last-modified")!) : new Date(),
       };
     },

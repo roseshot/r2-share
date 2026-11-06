@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { monitorUpload } from "./integrity";
 import { previewFormat } from "../src/preview-types";
+import { parseByteRange } from "./ranges";
 import { getVirusTotalReport } from "./virustotal";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Bindings, FileRecord, ShareRecord, Mode, StorageConfig } from "./model";
@@ -123,30 +124,62 @@ app.post("/api/files/:id/unlock", async c => {
   return c.json({ ok: true });
 });
 
-async function streamFile(env: Bindings, record: FileRecord, preview = false): Promise<Response> {
+async function streamFile(env: Bindings, record: FileRecord, preview = false, request?: Request): Promise<Response> {
   const format = previewFormat(record.filename, record.mime);
   if (preview && (!format || !format.contentType)) {
     return jsonError("Preview not supported for this file type", 400);
   }
   if (!isStorageConfigured(env, record.storageId)) return jsonError("Storage ID is not configured", 503);
-  const object = await getObjectStore(env, record.storageId).get(dataKey(record.id));
-  if (!object) return jsonError("File not found", 404);
+  const store = getObjectStore(env, record.storageId);
+  const key = dataKey(record.id);
   const filename = encodeURIComponent(record.filename);
-  return new Response(object.body, {
-    headers: {
-      "Content-Type": preview ? format!.contentType! : record.mime || "application/octet-stream",
-      "Content-Disposition": preview ? "inline" :
-        "attachment; filename=\"download\"; filename*=UTF-8''" + filename,
-      "Content-Length": String(object.size),
-      "Cache-Control": "private, no-store",
-      "X-Content-Type-Options": "nosniff",
-      ...(preview ? { "Content-Security-Policy": "sandbox; default-src 'none'" } : {}),
-    }
+  const headers = new Headers({
+    "Content-Type": preview ? format!.contentType! : record.mime || "application/octet-stream",
+    "Content-Disposition": preview ? "inline" :
+      "attachment; filename=\"download\"; filename*=UTF-8''" + filename,
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Accept-Ranges": "bytes",
+    ...(preview ? { "Content-Security-Policy": "sandbox; default-src 'none'" } : {}),
   });
+  if (request?.method === "HEAD") {
+    const object = await store.head(key);
+    if (!object) return jsonError("File not found", 404);
+    headers.set("Content-Length", String(object.size));
+    return new Response(null, { status: 200, headers });
+  }
+  // Honor single byte ranges; unsupported multipart ranges return 416.
+  // If-Range validators are not supported, so fall back to a complete response.
+  const requestedRange = request?.headers.has("If-Range") ? null : request?.headers.get("Range");
+  let rangeHeader: string | undefined;
+  let expectedContentRange: string | undefined;
+  let expectedLength: number | undefined;
+  if (requestedRange) {
+    const meta = await store.head(key);
+    if (!meta) return jsonError("File not found", 404);
+    const bytes = parseByteRange(requestedRange, meta.size);
+    if (!bytes) return new Response(null, { status: 416, headers: {
+      "Content-Range": "bytes */" + meta.size,
+      "Accept-Ranges": "bytes", "Cache-Control": "private, no-store",
+    } });
+    rangeHeader = "bytes=" + bytes.start + "-" + bytes.end;
+    expectedContentRange = "bytes " + bytes.start + "-" + bytes.end + "/" + meta.size;
+    expectedLength = bytes.end - bytes.start + 1;
+  }
+  const object = await store.get(key, rangeHeader);
+  if (!object) return jsonError("File not found", 404);
+  if (rangeHeader && (object.status !== 206 ||
+      object.contentRange !== expectedContentRange || object.size !== expectedLength)) {
+    await object.body.cancel();
+    return jsonError("Object storage did not return the requested byte range", 503);
+  }
+  headers.set("Content-Length", String(object.size));
+  if (expectedContentRange) headers.set("Content-Range", expectedContentRange);
+  return new Response(object.body, { status: rangeHeader ? 206 : 200, headers });
 }
 
 for (const action of ["preview", "download"] as const) {
-  app.get("/api/files/:id/" + action, async c => {
+  app.on(["GET", "HEAD"], "/api/files/:id/" + action, async c => {
     const id = c.req.param("id") ?? "";
     if (!validId(id)) return jsonError("File not found", 404);
     const result = await resolveSharedFile(c.env, id);
@@ -158,7 +191,7 @@ for (const action of ["preview", "download"] as const) {
       if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
       return c.json({ error: "Enter the access code first" }, 403);
     }
-    return streamFile(c.env, result.record, action === "preview");
+    return streamFile(c.env, result.record, action === "preview", c.req.raw);
   });
 }
 
@@ -558,7 +591,7 @@ app.get("/:entry/api/files/:id/download", async c => {
   if (!validStoredId(id)) return jsonError("File not found", 404);
   const record = await getRecord(c.env, id);
   if (!record || expired(record)) return jsonError("File not found or expired", 404);
-  return streamFile(c.env, record);
+  return streamFile(c.env, record, false, c.req.raw);
 });
 
 app.get("/tuckbox-mark.svg", c => c.env.ASSETS.fetch(c.req.raw));

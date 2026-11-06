@@ -15,6 +15,7 @@ export default function SharePage() {
   const [error, setError] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
 
   useEffect(() => {
     requestJson<Share>("/api/files/" + id).then(setFile)
@@ -22,8 +23,28 @@ export default function SharePage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  function download() {
-    window.location.assign("/api/files/" + id + "/download");
+  async function download() {
+    if (downloadBusy) return;
+    setDownloadBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/files/" + id + "/download", {
+        method: "HEAD", credentials: "same-origin", cache: "no-store",
+      });
+      if (!response.ok) {
+        if (response.status === 403) {
+          setFile({ id, mode: "protected" });
+          throw new Error("Access expired. Enter the access code again.");
+        }
+        if (response.status === 404) throw new Error("This share link or file is no longer available.");
+        throw new Error("Download unavailable. Please try again.");
+      }
+      window.location.assign("/api/files/" + id + "/download");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Download unavailable. Please try again.");
+    } finally {
+      setDownloadBusy(false);
+    }
   }
 
   async function unlock(event: FormEvent) {
@@ -101,7 +122,9 @@ export default function SharePage() {
                     <p className="text-sm text-zinc-500">Checksums are unavailable for this file.</p>
                   </section>}
                 <div className="mt-8 border-t border-zinc-200 dark:border-white/10 pt-7">
-                  <Button className="w-full" onClick={download}><ArrowDownToLine size={17}/>Download file</Button>
+                  <Button className="w-full" disabled={downloadBusy} onClick={() => void download()}>
+                    <ArrowDownToLine size={17}/>{downloadBusy ? "Preparing download…" : "Download file"}
+                  </Button>
                 </div>
               </> :
               <form onSubmit={unlock} className="mt-2 space-y-4">
@@ -109,10 +132,12 @@ export default function SharePage() {
                   <KeyRound size={16}/> Enter access code
                 </label>
                 <Input id="access-code" value={code} onChange={e => setCode(e.target.value)}
-                  type="password" autoComplete="off" placeholder="Access code" maxLength={64} required/>
+                  type="password" autoComplete="off" placeholder="Access code" maxLength={64} required
+                  aria-invalid={!!error} aria-describedby={error ? "share-access-error" : undefined} />
                 <Button type="submit" className="w-full" disabled={busy}>{busy ? "Verifying…" : "Unlock file"}</Button>
               </form>}
-            {error && <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-300">{error}</p>}
+            {error && <p id="share-access-error" role="alert"
+              className="mt-4 text-sm text-red-700 dark:text-red-300">{error}</p>}
           </>}
       </Card>
     </div>

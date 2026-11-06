@@ -40,6 +40,7 @@ export default function Home() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <Input
               id="share-link"
+              aria-invalid={!!error} aria-describedby={error ? "share-link-error" : undefined}
               value={link}
               onChange={event => {
                 setLink(event.target.value);
@@ -54,7 +55,7 @@ export default function Home() {
               Open <ArrowRight size={17} aria-hidden="true" />
             </Button>
           </div>
-          {error && <p role="alert" className="mt-3 text-left text-sm text-red-700 dark:text-red-300">{error}</p>}
+          {error && <p id="share-link-error" role="alert" className="mt-3 text-left text-sm text-red-700 dark:text-red-300">{error}</p>}
         </form>
       </section>
     </main>
