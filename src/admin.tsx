@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import {
-  ArrowDownToLine, Check, Clock3, Copy, Eye, EyeOff,
-  FileUp, KeyRound, Link2, LoaderCircle, LockKeyhole, LogOut,
+  ArrowDownToLine, Check, Clock3,
+  FileUp, LoaderCircle, LockKeyhole, LogOut,
   ShieldAlert, ShieldCheck, Trash2, X
 } from "lucide-react";
 import { Badge, Button, Card, Input, Select, buttonStyles } from "./ui";
@@ -9,11 +9,10 @@ import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile,
 import { originalModificationDate } from "./file-info";
 import { ThemeSwitcher } from "./theme";
 import AdminSettings from "./admin-settings";
+import AdminShares from "./admin-shares";
 
 const base = location.pathname;
 const api = (path: string) => base + "/api" + path;
-const shareLink = (id: string) => location.origin + "/" + id;
-const shareableId = (id: string) => /^[A-Za-z0-9_-]{16}$/.test(id);
 
 type VirusTotalReport = {
   status: "found" | "not_found" | "not_configured" | "rate_limited" | "unavailable";
@@ -58,12 +57,8 @@ export default function Admin() {
   const [code, setCode] = useState("");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [editId, setEditId] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState<Mode>("public");
-  const [editCode, setEditCode] = useState("");
   const [editFileDuration, setEditFileDuration] = useState(-1);
-  const [editShareDuration, setEditShareDuration] = useState(-1);
   const [saving, setSaving] = useState(false);
   const [vtLoading, setVtLoading] = useState<string | null>(null);
   const [vtResults, setVtResults] = useState<Record<string, VirusTotalReport>>({});
@@ -103,7 +98,7 @@ export default function Admin() {
 
   async function logout() {
     try { await requestJson(api("/logout"), { method: "POST", ...jsonBody({}) }); }
-    finally { setRevealed({}); setFiles([]); setAuth("guest"); setPassword(""); }
+    finally { setFiles([]); setAuth("guest"); setPassword(""); }
   }
 
   async function upload(event: FormEvent) {
@@ -151,22 +146,6 @@ export default function Admin() {
     finally { setUploading(false); }
   }
 
-  async function copy(value: string, label: string) {
-    try { await navigator.clipboard.writeText(value); notify(label + " copied"); }
-    catch { setError("Copy failed. Check clipboard permissions."); }
-  }
-
-  async function reveal(record: ManagedFile) {
-    if (revealed[record.id] !== undefined) {
-      setRevealed(previous => { const next = { ...previous }; delete next[record.id]; return next; });
-      return;
-    }
-    try {
-      const result = await requestJson<{ code: string | null }>(api("/files/" + record.id + "/code"));
-      if (result.code) setRevealed(previous => ({ ...previous, [record.id]: result.code! }));
-    } catch (e) { setError((e as Error).message); }
-  }
-
   async function checkVirusTotal(record: ManagedFile) {
     if (vtLoading) return;
     setVtLoading(record.id);
@@ -182,38 +161,32 @@ export default function Admin() {
   }
 
   function beginEdit(record: ManagedFile) {
-    setEditId(record.id); setEditMode(record.mode); setEditCode("");
-    setEditFileDuration(-1); setEditShareDuration(-1);
+    setEditId(record.id); setEditFileDuration(-1);
     setMessage(""); setError("");
   }
 
   async function updateRecord(event: FormEvent) {
     event.preventDefault();
-    if (!editId) return;
+    if (!editId || editFileDuration < 0) return;
     setSaving(true); setError("");
     try {
       await requestJson(api("/files/" + editId), {
         method: "PATCH", ...jsonBody({
-          mode: editMode,
-          code: editMode === "protected" && editCode.trim() ? editCode.trim() : undefined,
-          fileExpiresIn: editFileDuration >= 0 ? editFileDuration : undefined,
-          shareExpiresIn: editShareDuration >= 0 ? editShareDuration : undefined
+          fileExpiresIn: editFileDuration
         })
       });
       setVtResults(previous => { const next = { ...previous }; delete next[editId]; return next; });
-      setRevealed(previous => { const next = { ...previous }; delete next[editId]; return next; });
       setEditId(null); notify("File settings updated"); await refresh();
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
   }
 
   async function remove(record: ManagedFile) {
-    if (!window.confirm('Permanently delete "' + record.filename + '"? This immediately disables the share link.')) return;
+    if (!window.confirm('Permanently delete "' + record.filename + '"? This also revokes all its share links.')) return;
     setError("");
     try {
       await requestJson(api("/files/" + record.id), { method: "DELETE" });
       notify("Deleted " + record.filename);
-      setRevealed(previous => { const next = { ...previous }; delete next[record.id]; return next; });
       await refresh();
     } catch (e) { setError((e as Error).message); }
   }
@@ -353,32 +326,15 @@ export default function Admin() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="break-all text-base font-medium">{record.filename}</span>
                   <Badge variant="muted">{record.storageId}</Badge>
-                  <Badge variant={record.mode === "protected" ? "default" : "muted"}>
-                    {record.mode === "protected" ? <><KeyRound size={12} className="mr-1"/>Access code</> : "Public"}
-                  </Badge>
+
                 </div>
                 <p className="mt-2 text-xs text-zinc-500">{sizeText(record.size)} · {new Date(record.createdAt).toLocaleString("en-US")}</p>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-400">
                   <span>File: {timeText(record.fileExpiresAt)}</span>
-                  <span>Share: {timeText(record.shareExpiresAt)}</span>
                 </div>
-                {record.mode === "protected" && <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-                  <span className="text-zinc-500">Access code:</span>
-                  <code className="min-w-20 rounded-lg bg-zinc-100 dark:bg-zinc-950 px-3 py-1.5 text-emerald-700 dark:text-emerald-300">
-                    {revealed[record.id] ?? "••••••••"}
-                  </code>
-                  <Button size="icon" variant="ghost" aria-label={revealed[record.id] ? "Hide access code" : "Reveal access code"}
-                    onClick={() => void reveal(record)}>
-                    {revealed[record.id] ? <EyeOff size={16}/> : <Eye size={16}/>}
-                  </Button>
-                  {revealed[record.id] && <Button size="icon" variant="ghost" aria-label="Copy access code"
-                    onClick={() => void copy(revealed[record.id], "Access code")}><Copy size={16}/></Button>}
-                </div>}
+
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
-                {shareableId(record.id) ?
-                  <Button size="sm" variant="secondary" onClick={() => void copy(shareLink(record.id), "Share link")}><Link2 size={15}/>Share</Button> :
-                  <Badge variant="muted">Legacy link unavailable</Badge>}
                 <a className={buttonStyles({ variant: "secondary", size: "sm" })} href={api("/files/" + record.id + "/download")}>
                   <ArrowDownToLine size={15}/>Download
                 </a>
@@ -395,40 +351,25 @@ export default function Admin() {
               <p className="mt-2">{virusTotalSummary(vtResults[record.id])}</p>
               {vtResults[record.id].scanDate && <p className="mt-1 text-xs text-zinc-500">Last analysis: {new Date(vtResults[record.id].scanDate! * 1000).toLocaleString("en-US")}</p>}
             </div>}
-            {editId === record.id && <form className="mt-5 space-y-4 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-100/80 dark:bg-black/20 p-4" onSubmit={updateRecord}>
-              <h3 className="text-sm font-semibold">Edit share settings</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div><label htmlFor="edit-access" className="text-xs text-zinc-600 dark:text-zinc-400">Download access</label>
-                  <Select id="edit-access" className="mt-2" value={editMode} onValueChange={value => setEditMode(value as Mode)}
-                    options={[
-                      { value: "public", label: "Public link" },
-                      { value: "protected", label: "Access code protected" },
-                    ]} />
-                </div>
-                <div><label htmlFor="edit-file-expiration" className="text-xs text-zinc-600 dark:text-zinc-400">File expiration</label>
-                  <Select id="edit-file-expiration" className="mt-2" value={String(editFileDuration)}
-                    onValueChange={value => setEditFileDuration(Number(value))}
-                    options={[
-                      { value: "-1", label: "Keep unchanged" },
-                      ...durations.map(d => ({ value: String(d.seconds), label: d.label + " (from now)" })),
-                    ]} />
-                </div>
-                <div><label htmlFor="edit-share-expiration" className="text-xs text-zinc-600 dark:text-zinc-400">Share expiration</label>
-                  <Select id="edit-share-expiration" className="mt-2" value={String(editShareDuration)}
-                    onValueChange={value => setEditShareDuration(Number(value))}
-                    options={[
-                      { value: "-1", label: "Keep unchanged" },
-                      ...durations.map(d => ({ value: String(d.seconds), label: d.label + " (from now)" })),
-                    ]} />
-                </div>
-              </div>
-              {editMode === "protected" && <label className="block text-xs text-zinc-600 dark:text-zinc-400">
-                New access code (leave blank to keep existing; generated when switching from public)
-                <Input className="mt-2" value={editCode} onChange={e => setEditCode(e.target.value)}
-                  minLength={4} maxLength={64} autoComplete="off" placeholder="Leave blank to keep current"/>
-              </label>}
+            <AdminShares fileId={record.id} shares={record.shares} api={api}
+              onSaved={refresh} onError={setError} />
+            {editId === record.id && <form
+              className="mt-5 space-y-4 rounded-xl border border-zinc-200 bg-zinc-100/80 p-4 dark:border-white/10 dark:bg-black/20"
+              onSubmit={updateRecord}>
+              <h3 className="text-sm font-semibold">File retention settings</h3>
+              <label htmlFor="edit-file-expiration" className="block text-xs text-zinc-600 dark:text-zinc-400">
+                File expiration
+              </label>
+              <Select id="edit-file-expiration" value={String(editFileDuration)}
+                onValueChange={value => setEditFileDuration(Number(value))}
+                options={[
+                  { value: "-1", label: "Keep unchanged" },
+                  ...durations.map(d => ({ value: String(d.seconds), label: d.label + " (from now)" })),
+                ]} />
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" size="sm" disabled={saving}>{saving ? "Saving…" : "Save changes"}</Button>
+                <Button type="submit" size="sm" disabled={saving || editFileDuration < 0}>
+                  {saving ? "Saving…" : "Save file settings"}
+                </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditId(null)}>Cancel</Button>
               </div>
             </form>}

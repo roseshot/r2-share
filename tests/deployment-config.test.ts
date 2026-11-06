@@ -72,11 +72,14 @@ describe("environment-injected D1 deployment", () => {
     expect(config.secrets.required).toHaveLength(3);
     expect(config.vars).toBeUndefined();
     const migrations = readdirSync(new URL("../migrations/", import.meta.url)).filter(name => name.endsWith(".sql"));
-    expect(migrations).toEqual(["0001_initial.sql"]);
+    expect(migrations).toEqual(["0001_initial.sql", "0002_file_shares.sql"]);
     const schema = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS app_settings");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS files");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS upload_sessions");
+    const shareSchema = readFileSync(new URL("../migrations/0002_file_shares.sql", import.meta.url), "utf8");
+    expect(shareSchema).toContain("CREATE TABLE IF NOT EXISTS shares");
+    expect(shareSchema).toContain("INSERT OR IGNORE INTO shares");
     expect(schema).not.toContain("storage_reset");
     expect(schema).not.toContain("import_progress");
     expect(schema).toContain("storage_id TEXT NOT NULL");

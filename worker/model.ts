@@ -31,6 +31,19 @@ export const validChecksums = (value: unknown): value is FileChecksums => {
   const checksums = value as Record<string, unknown>;
   return Object.keys(checksums).length === 1 && validSha256(checksums.sha256);
 };
+export interface ShareRecord {
+  id: string;
+  fileId: string;
+  mode: Mode;
+  revision: string;
+  encryptedCode?: EncryptedCode;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export const shareLinkExpired = (file: FileRecord, share: ShareRecord): boolean =>
+  expired(file) || (share.expiresAt !== null && Date.parse(share.expiresAt) <= Date.now());
+
 export interface FileRecord {
   id: string;
   storageId: string;

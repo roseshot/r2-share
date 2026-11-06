@@ -12,15 +12,20 @@ export type Share = {
   checksums?: FileChecksums;
   originalModifiedAt?: string;
 };
-export type ManagedFile = Share & {
+export type ManagedShare = {
+  id: string;
+  mode: Mode;
+  createdAt: string;
+  shareExpiresAt: string | null;
+};
+export type ManagedFile = Omit<Share, "mode"> & {
   storageId: string;
+  shares: ManagedShare[];
   filename: string;
   size: number;
   mime: string;
   fileExpiresAt: string | null;
-  shareExpiresAt: string | null;
   createdAt: string;
-  revision: string;
 };
 export const durations = [
   { seconds: 0, label: "Never" },

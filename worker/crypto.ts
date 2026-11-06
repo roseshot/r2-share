@@ -1,4 +1,4 @@
-import type { FileRecord, EncryptedCode } from "./model";
+import type { EncryptedCode } from "./model";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -63,7 +63,7 @@ export async function encryptCode(code: string, id: string, revision: string, se
   );
   return { iv: b64(iv), data: b64(new Uint8Array(data)) };
 }
-export async function decryptCode(record: FileRecord, secret: string): Promise<string> {
+export async function decryptCode(record: { id: string; revision: string; encryptedCode?: EncryptedCode }, secret: string): Promise<string> {
   if (!record.encryptedCode) throw new Error("No encrypted code");
   const bytes = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: unb64(record.encryptedCode.iv), additionalData: enc.encode(record.id + ":" + record.revision) },

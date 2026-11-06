@@ -3,11 +3,12 @@ import { monitorUpload } from "./integrity";
 import { previewFormat } from "../src/preview-types";
 import { getVirusTotalReport } from "./virustotal";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import type { Bindings, FileRecord, Mode, StorageConfig } from "./model";
-import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareExpired, shareExpiry, expirationDate, validChecksums, validStoredId } from "./model";
+import type { Bindings, FileRecord, ShareRecord, Mode, StorageConfig } from "./model";
+import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareLinkExpired, expirationDate, validChecksums, validStoredId } from "./model";
 import { randomId, randomRevision, randomCode, signToken, readToken, equalText, encryptCode, decryptCode } from "./crypto";
 import { getRecord, saveRecord, deleteRecord, listRecords, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload, storageInUse } from "./storage";
 import { getObjectStore, isStorageConfigured } from "./object-store";
+import { getShare, listShares, listSharesForFiles, createShare, updateShare, deleteShare } from "./shares";
 import { resolveBindings, readAppSettings, saveAppSettings, validateSettings, validateStorage, publicStorage, type AppSettings } from "./app-config";
 
 type Environment = { Bindings: Bindings };
@@ -24,13 +25,18 @@ function clearShareAuthorization(c: import("hono").Context<Environment>, id: str
 const validEntry = (entry: string | undefined, env: Bindings): boolean =>
   !!entry && /^[a-zA-Z0-9_-]+$/.test(env.ADMIN_PATH ?? "") && entry === env.ADMIN_PATH;
 const age = (seconds: number) => Date.now() + seconds * 1000;
-const serialize = (record: FileRecord) => {
-  const { encryptedCode: _private, expiresAt: _fileExpiry, ...publicRecord } = record;
-  void _private;
-  void _fileExpiry;
-  return { ...publicRecord,
-    fileExpiresAt: record.expiresAt, shareExpiresAt: shareExpiry(record) };
+const shareView = (share: ShareRecord) => ({
+  id: share.id, mode: share.mode, createdAt: share.createdAt,
+  shareExpiresAt: share.expiresAt,
+});
+const serialize = (record: FileRecord, shares: ShareRecord[] = []) => {
+  const { encryptedCode: _private, expiresAt: _fileExpiry,
+    mode: _mode, revision: _revision, shareExpiresAt: _shareExpiresAt, ...publicRecord } = record;
+  void _private; void _fileExpiry; void _mode; void _revision; void _shareExpiresAt;
+  return { ...publicRecord, fileExpiresAt: record.expiresAt,
+    shares: shares.map(shareView) };
 };
+
 
 app.use("*", async (c, next) => {
   c.header("X-Content-Type-Options", "nosniff");
@@ -55,46 +61,62 @@ async function serveHtml(request: Request, env: Bindings): Promise<Response> {
   return new Response(response.body, { status: response.status, headers });
 }
 
+async function resolveSharedFile(env: Bindings, shareId: string) {
+  const share = await getShare(env, shareId);
+  if (!share) return null;
+  const record = await getRecord(env, share.fileId);
+  return record && !shareLinkExpired(record, share) ? { record, share } : null;
+}
+
+function hasShareAuthorization(claims: Record<string, unknown> | null, share: ShareRecord): boolean {
+  return !!claims && claims.scope === "download" &&
+    claims.id === share.id && claims.revision === share.revision;
+}
+
+async function verifySharedAccess(c: import("hono").Context<Environment>, share: ShareRecord) {
+  const token = await readToken(c.env.SESSION_SECRET, getCookie(c, downloadCookie(share.id)));
+  return hasShareAuthorization(token, share);
+}
+
 app.get("/api/files/:id", async c => {
   const id = c.req.param("id");
   if (!validId(id)) return jsonError("File not found", 404);
-  const record = await getRecord(c.env, id);
-  if (!record || shareExpired(record)) {
+  const result = await resolveSharedFile(c.env, id);
+  if (!result) {
     clearShareAuthorization(c, id);
     return c.json({ error: "File not found or expired" }, 404);
   }
-  if (record.mode === "protected") {
-    const claims = await readToken(c.env.SESSION_SECRET, getCookie(c, downloadCookie(id)));
-    if (!claims || claims.scope !== "download" || claims.id !== id || claims.revision !== record.revision) {
-      if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
-      return c.json({ id: record.id, mode: "protected" });
-    }
+  const { record, share } = result;
+  if (share.mode === "protected" && !await verifySharedAccess(c, share)) {
+    if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
+    return c.json({ id: share.id, mode: "protected" });
   }
-  return c.json({ id: record.id, filename: record.filename, size: record.size, mime: record.mime,
+  return c.json({ id: share.id, filename: record.filename, size: record.size, mime: record.mime,
     ...(validChecksums(record.checksums) ? { checksums: record.checksums } : {}),
     ...(record.originalModifiedAt ? { originalModifiedAt: record.originalModifiedAt } : {}),
-    mode: record.mode });
+    mode: share.mode });
 });
 
 app.post("/api/files/:id/unlock", async c => {
   if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
   const id = c.req.param("id");
   if (!validId(id)) return jsonError("File not found", 404);
-  const record = await getRecord(c.env, id);
-  if (!record || shareExpired(record)) {
+  const result = await resolveSharedFile(c.env, id);
+  if (!result) {
     clearShareAuthorization(c, id);
     return c.json({ error: "File not found or expired" }, 404);
   }
-  if (record.mode !== "protected") return jsonError("This file does not require an access code");
+  const { share } = result;
+  if (share.mode !== "protected") return jsonError("This link does not require an access code");
   const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
   const limit = await c.env.CODE_LIMITER.limit({ key: (ip + ":" + id).slice(0, 220) });
   if (!limit.success) return jsonError("Too many attempts. Try again later.", 429);
   const body = await readJson<{ code?: string }>(c.req.raw);
   if (!body || typeof body.code !== "string" || body.code.length > 64) return jsonError("Invalid access code", 403);
-  const original = await decryptCode(record, c.env.CODE_ENCRYPTION_KEY);
+  const original = await decryptCode(share, c.env.CODE_ENCRYPTION_KEY);
   if (!await equalText(body.code, original)) return jsonError("Invalid access code", 403);
   const token = await signToken(c.env.SESSION_SECRET, {
-    scope: "download", id, revision: record.revision, exp: age(shareAuthorizationDuration)
+    scope: "download", id, revision: share.revision, exp: age(shareAuthorizationDuration)
   });
   setCookie(c, downloadCookie(id), token, { path: "/",
     httpOnly: true, secure: true, sameSite: "Strict", maxAge: shareAuthorizationDuration });
@@ -124,41 +146,22 @@ async function streamFile(env: Bindings, record: FileRecord, preview = false): P
   });
 }
 
-app.get("/api/files/:id/preview", async c => {
-  const id = c.req.param("id");
-  if (!validId(id)) return jsonError("File not found", 404);
-  const record = await getRecord(c.env, id);
-  if (!record || shareExpired(record)) {
-    clearShareAuthorization(c, id);
-    return c.json({ error: "File not found or expired" }, 404);
-  }
-  if (record.mode === "protected") {
-    const token = await readToken(c.env.SESSION_SECRET, getCookie(c, downloadCookie(id)));
-    if (!token || token.scope !== "download" || token.id !== id || token.revision !== record.revision) {
+for (const action of ["preview", "download"] as const) {
+  app.get("/api/files/:id/" + action, async c => {
+    const id = c.req.param("id") ?? "";
+    if (!validId(id)) return jsonError("File not found", 404);
+    const result = await resolveSharedFile(c.env, id);
+    if (!result) {
+      clearShareAuthorization(c, id);
+      return c.json({ error: "File not found or expired" }, 404);
+    }
+    if (result.share.mode === "protected" && !await verifySharedAccess(c, result.share)) {
       if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
       return c.json({ error: "Enter the access code first" }, 403);
     }
-  }
-  return streamFile(c.env, record, true);
-});
-
-app.get("/api/files/:id/download", async c => {
-  const id = c.req.param("id");
-  if (!validId(id)) return jsonError("File not found", 404);
-  const record = await getRecord(c.env, id);
-  if (!record || shareExpired(record)) {
-    clearShareAuthorization(c, id);
-    return c.json({ error: "File not found or expired" }, 404);
-  }
-  if (record.mode === "protected") {
-    const token = await readToken(c.env.SESSION_SECRET, getCookie(c, downloadCookie(id)));
-    if (!token || token.scope !== "download" || token.id !== id || token.revision !== record.revision) {
-      if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
-      return c.json({ error: "Enter the access code first" }, 403);
-    }
-  }
-  return streamFile(c.env, record);
-});
+    return streamFile(c.env, result.record, action === "preview");
+  });
+}
 
 app.use("/:entry/api/*", async (c, next) => {
   const entry = c.req.param("entry");
@@ -291,7 +294,9 @@ app.delete("/:entry/api/settings/storages/:storageId", async c => {
 
 app.get("/:entry/api/files", async c => {
   const { records, truncated } = await listRecords(c.env);
-  return c.json({ files: records.filter(r => !expired(r)).map(serialize), truncated });
+  const shares = await listSharesForFiles(c.env);
+  return c.json({ files: records.filter(r => !expired(r)).map(record =>
+    serialize(record, shares.filter(share => share.fileId === record.id))), truncated });
 });
 
 app.post("/:entry/api/uploads", async c => {
@@ -373,7 +378,11 @@ app.put("/:entry/api/uploads/:id", async c => {
     }
     record.checksums = { sha256: checksums.sha256 };
     await finishUpload(c.env, record);
-    return c.json({ file: serialize(record) });
+    return c.json({ file: serialize(record, [{
+      id: record.id, fileId: record.id, mode: record.mode, revision: record.revision,
+      encryptedCode: record.encryptedCode, expiresAt: record.shareExpiresAt,
+      createdAt: record.createdAt,
+    }]) });
   } catch (error) {
     await store.delete(dataKey(id));
     await abandonUpload(c.env, id);
@@ -392,44 +401,134 @@ app.get("/:entry/api/files/:id/virustotal", async c => {
   return c.json(await getVirusTotalReport(record.checksums.sha256, c.env.VIRUSTOTAL_API_KEY));
 });
 
+function validShareChanges(body: Record<string, unknown> | null): body is Record<string, unknown> {
+  return !!body && typeof body === "object" && !Array.isArray(body) &&
+    Object.keys(body).length > 0 &&
+    Object.keys(body).every(key => ["mode", "code", "shareExpiresIn"].includes(key)) &&
+    (body.mode === undefined || body.mode === "public" || body.mode === "protected") &&
+    (body.code === undefined || (typeof body.code === "string" && body.code.length <= 64)) &&
+    (body.shareExpiresIn === undefined || EXPIRATIONS.some(x => x === body.shareExpiresIn));
+}
+
+async function changeShare(env: Bindings, current: ShareRecord, body: Record<string, unknown>):
+  Promise<{ share: ShareRecord; code: string | null }> {
+  const mode = (body.mode ?? current.mode) as Mode;
+  let code: string | null = null;
+  if (mode === "protected") {
+    code = (body.code as string | undefined)?.trim() ||
+      (current.mode === "protected"
+        ? await decryptCode(current, env.CODE_ENCRYPTION_KEY) : randomCode());
+    if (code.length < 4) throw new Error("Invalid access code");
+  }
+  const revision = randomRevision();
+  const share: ShareRecord = {
+    ...current, mode, revision,
+    expiresAt: body.shareExpiresIn === undefined ? current.expiresAt :
+      expirationDate(body.shareExpiresIn as number),
+    encryptedCode: code ? await encryptCode(code, current.id, revision, env.CODE_ENCRYPTION_KEY) : undefined,
+  };
+  await updateShare(env, share);
+  return { share, code };
+}
+
 app.get("/:entry/api/files/:id/code", async c => {
   const id = c.req.param("id");
-  if (!validStoredId(id)) return jsonError("File not found", 404);
-  const record = await getRecord(c.env, id);
-  if (!record || expired(record)) return jsonError("File not found or expired", 404);
-  if (record.mode !== "protected") return c.json({ code: null });
-  return c.json({ code: await decryptCode(record, c.env.CODE_ENCRYPTION_KEY) });
+  if (!validId(id)) return jsonError("File not found", 404);
+  const share = await getShare(c.env, id);
+  return c.json({ code: share?.mode === "protected"
+    ? await decryptCode(share, c.env.CODE_ENCRYPTION_KEY) : null });
 });
 
 app.patch("/:entry/api/files/:id", async c => {
   const id = c.req.param("id");
-  if (!validStoredId(id)) return jsonError("File not found", 404);
+  if (!validId(id)) return jsonError("File not found", 404);
   const record = await getRecord(c.env, id);
   if (!record || expired(record)) return jsonError("File not found or expired", 404);
-  const body = await readJson<{
-    mode?: Mode; code?: string; fileExpiresIn?: number; shareExpiresIn?: number;
-  }>(c.req.raw);
-  if (!body || !["public", "protected"].includes(body.mode ?? "") ||
-      (body.fileExpiresIn !== undefined && !EXPIRATIONS.some(x => x === body.fileExpiresIn)) ||
-      (body.shareExpiresIn !== undefined && !EXPIRATIONS.some(x => x === body.shareExpiresIn)) ||
-      (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64))) {
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || Array.isArray(body) || !Object.keys(body).length ||
+      Object.keys(body).some(key => !["mode", "code", "shareExpiresIn", "fileExpiresIn"].includes(key)) ||
+      (body.fileExpiresIn !== undefined && !EXPIRATIONS.some(x => x === body.fileExpiresIn))) {
     return jsonError("Invalid update parameters");
   }
-  const mode = body.mode as Mode;
+  const changes = Object.fromEntries(Object.entries(body).filter(([key]) => key !== "fileExpiresIn"));
   let code: string | null = null;
-  if (mode === "protected") {
-    code = body.code?.trim() || (record.mode === "protected"
-      ? await decryptCode(record, c.env.CODE_ENCRYPTION_KEY) : randomCode());
-    if (code.length < 4) return jsonError("Access code must contain at least 4 characters");
+  if (Object.keys(changes).length) {
+    if (!validShareChanges(changes)) return jsonError("Invalid share settings");
+    const existing = await getShare(c.env, id);
+    if (!existing || existing.fileId !== id) return jsonError("Primary share not found", 404);
+    if (changes.code !== undefined && typeof changes.code === "string" &&
+        changes.code.trim() && changes.code.trim().length < 4) return jsonError("Access code must contain at least 4 characters");
+    ({ code } = await changeShare(c.env, existing, changes));
   }
-  const revision = randomRevision(); // Invalidates every previous download token.
-  record.mode = mode;
-  record.revision = revision;
-  record.encryptedCode = code ? await encryptCode(code, id, revision, c.env.CODE_ENCRYPTION_KEY) : undefined;
-  if (body.fileExpiresIn !== undefined) record.expiresAt = expirationDate(body.fileExpiresIn);
-  if (body.shareExpiresIn !== undefined) record.shareExpiresAt = expirationDate(body.shareExpiresIn);
-  await saveRecord(c.env, record);
-  return c.json({ file: serialize(record), code });
+  if (body.fileExpiresIn !== undefined) {
+    record.expiresAt = expirationDate(body.fileExpiresIn as number);
+    await saveRecord(c.env, record);
+  }
+  return c.json({ file: serialize(record, await listShares(c.env, id)), code });
+});
+
+app.get("/:entry/api/files/:id/shares", async c => {
+  const id = c.req.param("id");
+  if (!validId(id) || !await getRecord(c.env, id)) return jsonError("File not found", 404);
+  return c.json({ shares: (await listShares(c.env, id)).map(shareView) });
+});
+
+app.post("/:entry/api/files/:id/shares", async c => {
+  const fileId = c.req.param("id");
+  const record = await getRecord(c.env, fileId);
+  if (!record || expired(record)) return jsonError("File not found or expired", 404);
+  const body = await readJson<{ mode?: Mode; code?: string; shareExpiresIn?: number }>(c.req.raw);
+  if (!body || (body.mode !== "public" && body.mode !== "protected") ||
+      !EXPIRATIONS.some(x => x === body.shareExpiresIn) ||
+      (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64))) {
+    return jsonError("Invalid share parameters");
+  }
+  const code = body.mode === "protected" ? body.code?.trim() || randomCode() : null;
+  if (code && code.length < 4) return jsonError("Access code must contain at least 4 characters");
+  let id = randomId();
+  while (id === c.env.ADMIN_PATH || await getShare(c.env, id) || await getRecord(c.env, id)) id = randomId();
+  const revision = randomRevision();
+  const share: ShareRecord = {
+    id, fileId, mode: body.mode, revision, createdAt: new Date().toISOString(),
+    expiresAt: expirationDate(body.shareExpiresIn!),
+    encryptedCode: code ? await encryptCode(code, id, revision, c.env.CODE_ENCRYPTION_KEY) : undefined,
+  };
+  await createShare(c.env, share);
+  return c.json({ share: shareView(share), code }, 201);
+});
+
+app.patch("/:entry/api/files/:id/shares/:shareId", async c => {
+  const fileId = c.req.param("id"), shareId = c.req.param("shareId");
+  if (!validId(fileId) || !validId(shareId)) return jsonError("Share not found", 404);
+  const record = await getRecord(c.env, fileId);
+  const share = await getShare(c.env, shareId);
+  if (!record || expired(record) || !share || share.fileId !== fileId) {
+    return jsonError("Share not found", 404);
+  }
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!validShareChanges(body)) return jsonError("Invalid share settings");
+  if (typeof body.code === "string" && body.code.trim() && body.code.trim().length < 4) {
+    return jsonError("Access code must contain at least 4 characters");
+  }
+  const changed = await changeShare(c.env, share, body);
+  return c.json({ share: shareView(changed.share), code: changed.code });
+});
+
+app.get("/:entry/api/files/:id/shares/:shareId/code", async c => {
+  const fileId = c.req.param("id"), shareId = c.req.param("shareId");
+  const share = await getShare(c.env, shareId);
+  if (!share || share.fileId !== fileId) return jsonError("Share not found", 404);
+  return c.json({ code: share.mode === "protected"
+    ? await decryptCode(share, c.env.CODE_ENCRYPTION_KEY) : null });
+});
+
+app.delete("/:entry/api/files/:id/shares/:shareId", async c => {
+  const fileId = c.req.param("id"), shareId = c.req.param("shareId");
+  if (!validId(fileId) || !validId(shareId)) return jsonError("Share not found", 404);
+  const share = await getShare(c.env, shareId);
+  if (!share || share.fileId !== fileId) return jsonError("Share not found", 404);
+  await deleteShare(c.env, fileId, shareId);
+  return c.json({ ok: true });
 });
 
 app.delete("/:entry/api/files/:id", async c => {
@@ -454,8 +553,8 @@ app.get("/:entry", async c => {
   // The private admin entry always takes precedence over a sharing ID.
   if (validEntry(entry, c.env)) return serveHtml(c.req.raw, c.env);
   if (!validId(entry)) return c.notFound();
-  const record = await getRecord(c.env, entry);
-  if (!record || shareExpired(record)) {
+  const match = await resolveSharedFile(c.env, entry);
+  if (!match) {
     clearShareAuthorization(c, entry);
     return c.text("Not found", 404);
   }

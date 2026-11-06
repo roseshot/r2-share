@@ -5,12 +5,21 @@ import { encryptCode, signToken } from "../worker/crypto";
 import { EXPIRATIONS, dataKey, expired, shareExpired, type Bindings, type FileRecord } from "../worker/model";
 import { bindObjectStore } from "../worker/object-store";
 import { bindTestSettings } from "../worker/app-config";
-import { cleanupExpired, deleteRecord, getRecord, saveRecord } from "../worker/storage";
+import { cleanupExpired, deleteRecord, getRecord, saveRecord as saveFileRecord } from "../worker/storage";
+import { initialShare, getShare, createShare, updateShare } from "../worker/shares";
 import { createTestDatabase } from "./d1-helper";
 
 const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const origin = "https://files.example.test";
 const id = "A_-a".repeat(4);
+
+async function saveRecord(env: Bindings, record: FileRecord): Promise<void> {
+  await saveFileRecord(env, record);
+  const primary = initialShare(record);
+  if (await getShare(env, record.id)) await updateShare(env, primary);
+  else await createShare(env, primary);
+}
+
 
 function setup() {
   const objects = new Map<string, string>();
@@ -386,8 +395,9 @@ describe("independent file and share expiration", () => {
     expect(app.objects.has(dataKey(id))).toBe(true);
     const list = await app.request("/secret/api/files", { headers: { Cookie: await app.adminCookie() } });
     expect(list.status).toBe(200);
-    const result = await list.json() as { files: { shareExpiresAt: string }[] };
+    const result = await list.json() as { files: { shares: { shareExpiresAt: string | null }[] }[] };
     expect(result.files).toHaveLength(1);
+    expect(result.files[0].shares).toHaveLength(1);
   });
 
   test("file expiry removes stored objects even if the share is permanent", async () => {

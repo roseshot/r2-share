@@ -45,13 +45,13 @@ Supply the following build-time values:
 
 ### Start with a fresh D1 database
 
-The sole SQL migration, **`migrations/0001_initial.sql`**, creates only:
+The initial SQL migration, **`migrations/0001_initial.sql`**, creates:
 
 - `files`, with indexes for creation and expiration.
 - `upload_sessions`, with a required `storage_id` referencing a configured storage ID.
 - `app_settings`, containing encrypted B2, R2 and optional VirusTotal configuration.
 
-There is no storage-reset table, import bookkeeping table, historical data migration, automatic bucket clearing, or compatibility mode. File records must contain an explicit `storageId`. A missing or unknown storage ID is rejected; a provider name such as `b2` or `r2` is not a substitute for an ID.
+There is no storage-reset table, import bookkeeping table, automatic bucket clearing, or storage compatibility mode. File records must contain an explicit `storageId`. A missing or unknown storage ID is rejected; a provider name such as `b2` or `r2` is not a substitute for an ID.
 
 **Use a new D1 database for this fresh-start schema.** Changing the contents of `0001_initial.sql` does not replay a migration already marked as applied by Wrangler on an older database. Pointing this release at a database created with previous schemas will not automatically upgrade that schema. This repository deliberately does not ship destructive resets or historical compatibility scripts. Do not reuse an old D1 database without a separately planned, explicit migration.
 
@@ -87,6 +87,14 @@ Storage IDs and their provider types cannot be changed after creation. Bucket/ac
 
 Configure the optional VirusTotal API key separately in Object storage settings. All storage credentials are encrypted in D1 using `APP_MASTER_KEY`; no additional Worker Secrets, Variables, or R2 bindings are required.
 
+## Multiple share links per file
+
+A file can have any number of independent share links without duplicating the object in B2 or R2. The administrator's **Share links** section on each file lets you create, copy, edit, and revoke individual links. Each link has its own 16-character identifier, public or access-code-protected mode, access code, expiry, and authorization revision. Editing one link invalidates only that link's authorization cookies; revoking it does not delete the file or affect its other links. Deleting the file revokes all links and deletes the stored object.
+
+**SQL migrations:** `migrations/0001_initial.sql` remains unchanged; `migrations/0002_file_shares.sql` creates a separate `shares` table with a foreign key to `files`. The migration converts each existing file's original link into a share record with the **same URL, access code, and expiration**, so original links continue to work. The initial share from a new upload also retains the file ID as its link ID. Additional links get new random IDs. Share-link expiration never deletes the underlying file; file expiration and manual file deletion do.
+
+`bun run deploy` applies pending D1 migrations to the configured database before publishing. No new Worker Secrets or object storage variables are needed.
+
 ## Local development
 
 Copy `.dev.vars.example` to `.dev.vars`, set the three Worker Secrets, and supply `D1_DATABASE_NAME` and `D1_DATABASE_ID` to the development shell.
@@ -96,7 +104,7 @@ bun install
 bun run dev
 ```
 
-Local development applies `0001_initial.sql` to the local D1 database. Configure the private object storage providers in the local administrator dashboard.
+Local development applies all pending SQL migrations to the local D1 database. Configure the private object storage providers in the local administrator dashboard.
 
 ## Cleanup and safety
 

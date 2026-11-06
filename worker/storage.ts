@@ -1,6 +1,7 @@
 import type { Bindings, FileRecord } from "./model";
 import { dataKey, validStorageId, validChecksums, validStoredId } from "./model";
 import { getObjectStore, isStorageConfigured } from "./object-store";
+import { createInitialShareStatement } from "./shares";
 
 interface FileRow { record_json: string }
 interface FileIdRow { id: string }
@@ -44,7 +45,10 @@ export async function deleteRecord(env: Bindings, id: string): Promise<void> {
   const record = await getRecord(env, id);
   if (!record) return;
   await getObjectStore(env, record.storageId).delete(dataKey(id));
-  await env.DB.prepare("DELETE FROM files WHERE id = ?").bind(id).run();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM shares WHERE file_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM files WHERE id = ?").bind(id),
+  ]);
 }
 
 export async function reserveUpload(env: Bindings, id: string, storageId: string): Promise<boolean> {
@@ -66,6 +70,7 @@ export async function finishUpload(env: Bindings, record: FileRecord): Promise<v
   if (!parseRecord(record)) throw new Error("Invalid file record");
   await env.DB.batch([
     recordStatement(env, record),
+    createInitialShareStatement(env, record),
     env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(record.id),
   ]);
 }
