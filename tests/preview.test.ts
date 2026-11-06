@@ -36,6 +36,36 @@ describe("safe file format selection", () => {
     expect(previewFormat("malware.exe")).toBeNull();
   });
 
+  test("loads preview content on first open and hides it without unmounting", () => {
+    const source = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
+    expect(source).toContain("const [activated, setActivated] = useState(false)");
+    expect(source).toContain("setActivated(true)");
+    expect(source).toContain('activated && <div id="preview-details" hidden={!opened}');
+    expect(source).not.toContain('{opened && <div id="preview-details"');
+    expect(source).toContain('src={previewURL}');
+    expect(source).toContain('aria-expanded={opened}');
+  });
+
+  test("reuses successful text previews and lets failed previews retry", () => {
+    const source = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
+    expect(source).toContain('if (!activated || format?.kind !== "text" || text !== null || error) return;');
+    expect(source).toContain('if (!controller.signal.aborted) setText(content.slice(0, 200000))');
+    expect(source).toContain('[activated, format?.kind, file.size, previewURL, text, error]');
+    expect(source).not.toContain('[opened, format?.kind');
+    expect(source).toContain('if (error) setError("")');
+    expect(source).toContain('cache: "no-store"');
+  });
+
+  test("pauses playing audio and video when collapsed and resets on a different file", () => {
+    const source = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
+    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    expect(source).toContain("audioRef.current?.pause()");
+    expect(source).toContain("videoRef.current?.pause()");
+    expect(source).toContain("<audio ref={audioRef}");
+    expect(source).toContain("<video ref={videoRef}");
+    expect(share).toContain('key={[id, file.filename, file.size, file.checksums?.sha256].join(":")}');
+  });
+
   test("archive preview code never downloads or parses archives", () => {
     const component = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
     expect(component).not.toContain('from "./archive"');

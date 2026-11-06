@@ -132,7 +132,7 @@ export default function SharePage() {
                     </Popover.Root>
                   </span>
                 </div>
-                <FilePreview id={id} file={file} />
+                <FilePreview key={[id, file.filename, file.size, file.checksums?.sha256].join(":")} id={id} file={file} />
                 {file.checksums ? <FileChecksums checksums={file.checksums} filename={file.filename!} /> :
                   <section className="mt-6" aria-label="SHA-256">
                     <h2 className="mb-2 text-sm font-medium">SHA-256</h2>

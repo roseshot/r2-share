@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Eye, LoaderCircle } from "lucide-react";
 import { Button } from "./ui";
 import { previewFormat } from "./preview-types";
@@ -7,19 +7,18 @@ import type { Share } from "./lib";
 export function FilePreview({ file, id }: { file: Share; id: string }) {
   const format = previewFormat(file.filename ?? "", file.mime);
   const [opened, setOpened] = useState(false);
+  const [activated, setActivated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [text, setText] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const previewURL = "/api/files/" + id + "/preview";
 
+  // A successful text preview is cached for the life of this file view.
+  // Hiding the preview does not cancel a pending request or clear its result.
   useEffect(() => {
-    setOpened(false);
-    setText(null);
-    setError("");
-  }, [id, file.filename]);
-
-  useEffect(() => {
-    if (!opened || format?.kind !== "text") return;
+    if (!activated || format?.kind !== "text" || text !== null || error) return;
     const controller = new AbortController();
 
     async function load() {
@@ -45,7 +44,19 @@ export function FilePreview({ file, id }: { file: Share; id: string }) {
     }
     void load();
     return () => controller.abort();
-  }, [opened, format?.kind, file.size, id, previewURL]);
+  }, [activated, format?.kind, file.size, previewURL, text, error]);
+
+  function togglePreview() {
+    if (opened) {
+      audioRef.current?.pause();
+      videoRef.current?.pause();
+    } else {
+      // Allow another attempt after a failed preview; keep successful content.
+      if (error) setError("");
+      setActivated(true);
+    }
+    setOpened(value => !value);
+  }
 
   if (!format) return null;
 
@@ -55,13 +66,13 @@ export function FilePreview({ file, id }: { file: Share; id: string }) {
         <Eye size={17} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
         File preview
       </h2>
-      <Button size="sm" variant="ghost" onClick={() => { if (!opened) setError(""); setOpened(value => !value); }}
+      <Button size="sm" variant="ghost" onClick={togglePreview}
         aria-expanded={opened} aria-controls="preview-details">
         {opened ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         {opened ? "Hide" : "Preview"}
       </Button>
     </div>
-    {opened && <div id="preview-details" className="mt-4">
+    {activated && <div id="preview-details" hidden={!opened} className="mt-4">
       {busy && <p role="status" className="flex items-center gap-2 text-sm text-zinc-500">
         <LoaderCircle size={16} className="animate-spin" />Loading preview…
       </p>}
@@ -84,10 +95,10 @@ export function FilePreview({ file, id }: { file: Share; id: string }) {
           sandbox="allow-scripts allow-downloads"
           className="h-96 w-full rounded-xl border border-zinc-200 bg-white dark:border-white/10" />}
       {!error && format.kind === "audio" &&
-        <audio src={previewURL} controls preload="metadata" className="w-full" aria-label="Audio preview"
+        <audio ref={audioRef} src={previewURL} controls preload="metadata" className="w-full" aria-label="Audio preview"
           onError={() => setError("Preview unavailable.")} />}
       {!error && format.kind === "video" &&
-        <video src={previewURL} controls preload="metadata" onError={() => setError("Preview unavailable.")}
+        <video ref={videoRef} src={previewURL} controls preload="metadata" onError={() => setError("Preview unavailable.")}
           className="max-h-96 w-full rounded-xl bg-black" aria-label="Video preview" />}
     </div>}
   </section>;
