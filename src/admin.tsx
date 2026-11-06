@@ -1,8 +1,8 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import {
-  ArrowDownToLine, Clock3,
+  ArrowDownToLine, Clock3, FolderOpen,
   FileUp, LoaderCircle, LockKeyhole, LogOut,
-  ShieldAlert, ShieldCheck, Trash2
+  ShieldAlert, ShieldCheck, Trash2, X
 } from "lucide-react";
 import { Badge, Button, Card, Input, Select, buttonStyles } from "./ui";
 import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile, type Mode } from "./lib";
@@ -12,9 +12,15 @@ import AdminSettings from "./admin-settings";
 import AdminShares from "./admin-shares";
 import { ConfirmDialog } from "./confirm-dialog";
 import { successToast } from "./notifications";
+import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "./upload-queue";
 
 const base = location.pathname;
 const api = (path: string) => base + "/api" + path;
+
+type UploadResult = {
+  id: string; filename: string; size: number; mode: Mode; code: string | null;
+  expiresAt: string | null;
+};
 
 type VirusTotalReport = {
   status: "found" | "not_found" | "not_configured" | "rate_limited" | "unavailable";
@@ -56,7 +62,14 @@ export default function Admin() {
   const [storageFilter, setStorageFilter] = useState("");
   const [sort, setSort] = useState("newest");
   const [loadingFiles, setLoadingFiles] = useState(false);
-  const [selected, setSelected] = useState<File | null>(null);
+  const [selected, setSelected] = useState<UploadEntry[]>([]);
+  const [readingFiles, setReadingFiles] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [uploadIndex, setUploadIndex] = useState(0);
+  const [batchCount, setBatchCount] = useState(0);
+  const [currentFilename, setCurrentFilename] = useState("");
+  const [overallProgress, setOverallProgress] = useState(0);
+  const [uploadFailures, setUploadFailures] = useState<{ filename: string; message: string }[]>([]);
   const [shareDuration, setShareDuration] = useState(86400);
   const [mode, setMode] = useState<Mode>("public");
   const [storageId, setStorageId] = useState("");
@@ -65,10 +78,7 @@ export default function Admin() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [processing, setProcessing] = useState(false);
-  const [uploadResult, setUploadResult] = useState<{
-    id: string; filename: string; size: number; mode: Mode; code: string | null;
-    expiresAt: string | null;
-  } | null>(null);
+  const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   const [editFileDuration, setEditFileDuration] = useState(-1);
   const [saving, setSaving] = useState(false);
@@ -142,60 +152,135 @@ export default function Admin() {
     catch { setError("Clipboard access failed. Copy the value manually."); }
   }
 
+  function addToQueue(incoming: UploadEntry[]) {
+    const { files: next, rejected } = appendUploads(selected, incoming);
+    setSelected(next);
+    setUploadFailures([]);
+    if (rejected.length) {
+      setError(rejected.length + " file(s) skipped. " +
+        rejected[0].filename + ": " + rejected[0].reason);
+    } else {
+      setError("");
+    }
+  }
+
+  function chooseFiles(event: ChangeEvent<HTMLInputElement>) {
+    addToQueue(selectedFiles(Array.from(event.currentTarget.files ?? [])));
+    event.currentTarget.value = "";
+  }
+
+  async function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setDragging(false);
+    if (uploading || readingFiles) return;
+    setReadingFiles(true);
+    try {
+      const entries = await droppedFiles(event.dataTransfer);
+      if (!entries.length) {
+        setError("No files found. Empty folders cannot be uploaded.");
+        return;
+      }
+      addToQueue(entries);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to read dropped files");
+    } finally {
+      setReadingFiles(false);
+    }
+  }
+
   async function upload(event: FormEvent) {
     event.preventDefault();
-    if (!selected || uploading) return;
+    if (!selected.length || uploading || readingFiles) return;
     if (!storageIds.includes(storageId)) {
       setError("Configure an object storage backend before uploading"); return;
     }
-    if (selected.size > 90 * 1024 * 1024 || selected.size === 0) {
-      setError("File size must be greater than zero and at most 90 MiB"); return;
+
+    const batch = [...selected];
+    const totalBytes = batch.reduce((sum, entry) => sum + entry.file.size, 0);
+    let completedBytes = 0;
+    const succeeded: UploadResult[] = [];
+    const failed: UploadEntry[] = [];
+    const failures: { filename: string; message: string }[] = [];
+    setBatchCount(batch.length);
+    setUploading(true); setProcessing(false); setProgress(0); setOverallProgress(0);
+    setError(""); setUploadResults([]); setUploadFailures([]);
+
+    for (const [index, entry] of batch.entries()) {
+      setUploadIndex(index + 1);
+      setCurrentFilename(entry.filename);
+      setProgress(0);
+      setProcessing(false);
+      try {
+        // Reserve an independent session immediately before each transfer.
+        const init = await requestJson<{ id: string; token: string; code: string | null }>(
+          api("/uploads"),
+          { method: "POST", ...jsonBody({
+            filename: entry.filename, size: entry.file.size,
+            mime: entry.file.type || "application/octet-stream",
+            shareExpiresIn: shareDuration,
+            originalModifiedAt: originalModificationDate(entry.file.lastModified),
+            mode, storageId, code: mode === "protected" ? code : undefined
+          }) }
+        );
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", api("/uploads/" + init.id));
+          xhr.withCredentials = true;
+          xhr.setRequestHeader("X-Upload-Token", init.token);
+          xhr.setRequestHeader("Content-Type", "application/octet-stream");
+          xhr.upload.onprogress = progressEvent => {
+            if (progressEvent.lengthComputable) {
+              const percentage = Math.round(progressEvent.loaded / progressEvent.total * 100);
+              setProgress(percentage);
+              setOverallProgress(Math.round((completedBytes + progressEvent.loaded) / totalBytes * 100));
+              if (percentage === 100) setProcessing(true);
+            }
+          };
+          xhr.onerror = () => reject(new Error("Network error during upload"));
+          xhr.onabort = () => reject(new Error("Upload canceled"));
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
+            let message = "Upload failed";
+            try { message = (JSON.parse(xhr.responseText) as { error?: string }).error || message; }
+            catch { /* The server did not return JSON. */ }
+            reject(new Error(message));
+          };
+          xhr.send(entry.file);
+        });
+        const result: UploadResult = {
+          id: init.id, filename: entry.filename, size: entry.file.size, mode,
+          code: init.code, expiresAt: shareDuration === 0 ? null :
+            new Date(Date.now() + shareDuration * 1000).toISOString(),
+        };
+        succeeded.push(result);
+        setUploadResults([...succeeded]);
+      } catch (reason) {
+        failed.push(entry);
+        failures.push({
+          filename: entry.filename,
+          message: reason instanceof Error ? reason.message : "Upload failed",
+        });
+        setUploadFailures([...failures]);
+      } finally {
+        completedBytes += entry.file.size;
+        setOverallProgress(Math.round(completedBytes / totalBytes * 100));
+      }
     }
-    setUploading(true); setProcessing(false); setProgress(0); setError(""); setUploadResult(null);
-    try {
-      const init = await requestJson<{ id: string; token: string; code: string | null }>(
-        api("/uploads"),
-        { method: "POST", ...jsonBody({
-          filename: selected.name, size: selected.size, mime: selected.type || "application/octet-stream",
-          shareExpiresIn: shareDuration,
-          originalModifiedAt: originalModificationDate(selected.lastModified),
-          mode, storageId, code: mode === "protected" ? code : undefined
-        }) }
+
+    setSelected(failed); // Only unsuccessful files remain queued for retry.
+    setUploadFailures(failures);
+    if (!failed.length) { setCode(""); setMode("public"); }
+    if (succeeded.length) {
+      successToast(
+        succeeded.length === 1 ? "File uploaded successfully" :
+          succeeded.length + " files uploaded successfully",
+        succeeded.length === 1 ? succeeded[0].code : undefined,
       );
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", api("/uploads/" + init.id));
-        xhr.withCredentials = true;
-        xhr.setRequestHeader("X-Upload-Token", init.token);
-        xhr.setRequestHeader("Content-Type", "application/octet-stream");
-        xhr.upload.onprogress = e => {
-          if (e.lengthComputable) {
-            const percentage = Math.round(e.loaded / e.total * 100);
-            setProgress(percentage);
-            if (percentage === 100) setProcessing(true);
-          }
-        };
-        xhr.onerror = () => reject(new Error("Network error during upload"));
-        xhr.onabort = () => reject(new Error("Upload canceled"));
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
-          try { reject(new Error((JSON.parse(xhr.responseText) as { error: string }).error || "Upload failed")); }
-          catch (e) { reject(e instanceof Error ? e : new Error("Upload failed")); }
-        };
-        xhr.send(selected);
-      });
-      setUploadResult({
-        id: init.id, filename: selected.name, size: selected.size, mode,
-        code: init.code, expiresAt: shareDuration === 0 ? null :
-          new Date(Date.now() + shareDuration * 1000).toISOString(),
-      });
-      successToast("File uploaded successfully", init.code);
-      setSelected(null); setCode(""); setMode("public"); setProgress(0);
-      const field = document.getElementById("upload-file") as HTMLInputElement | null;
-      if (field) field.value = "";
       await refresh();
-    } catch (e) { setError((e as Error).message); }
-    finally { setUploading(false); setProcessing(false); }
+    }
+    if (failures.length) setError(failures.length + " file(s) failed. Retry the remaining queue.");
+    setUploading(false); setProcessing(false); setCurrentFilename("");
+    setProgress(0);
   }
 
   async function checkVirusTotal(record: ManagedFile) {
@@ -290,12 +375,59 @@ export default function Admin() {
             <h2 className="text-lg font-semibold">Upload files</h2>
           </div>
           <form onSubmit={upload} className="space-y-5">
-            <label htmlFor="upload-file" className="file-drop flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 dark:border-white/20 bg-zinc-50 dark:bg-zinc-950/70 px-4 py-6 text-center transition hover:border-emerald-400/50">
+            <label htmlFor="upload-file"
+              onDragOver={event => { event.preventDefault(); if (!uploading) setDragging(true); }}
+              onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
+              onDrop={event => { void handleDrop(event); }}
+              className={`file-drop flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-6 text-center transition ${dragging ? "border-emerald-400 bg-emerald-400/10" : "border-zinc-300 dark:border-white/20 bg-zinc-50 dark:bg-zinc-950/70 hover:border-emerald-400/50"}`}>
               <FileUp size={27} className="mb-3 text-emerald-700 dark:text-emerald-300"/>
-              <span className="max-w-full break-all text-sm font-medium">{selected?.name || "Choose a file to share"}</span>
-              <span className="mt-2 text-xs text-zinc-500">{selected ? sizeText(selected.size) : "Up to 90 MiB · Streaming upload"}</span>
+              <span className="max-w-full break-words text-sm font-medium">
+                {readingFiles ? "Reading selected files…" :
+                  selected.length ? selected.length + " file(s) ready to upload" :
+                  "Choose files or drag files and folders here"}
+              </span>
+              <span className="mt-2 text-xs text-zinc-500">
+                {selected.length ? sizeText(selected.reduce((total, entry) => total + entry.file.size, 0)) + " total" :
+                  "Up to 90 MiB per file · 500 files per batch"}
+              </span>
             </label>
-            <input id="upload-file" className="sr-only" type="file" onChange={(e: ChangeEvent<HTMLInputElement>) => setSelected(e.target.files?.[0] ?? null)} disabled={uploading}/>
+            <input id="upload-file" className="sr-only" type="file" multiple
+              onChange={chooseFiles} disabled={uploading || readingFiles} />
+            <input id="upload-folder" className="sr-only" type="file" multiple
+              ref={element => { if (element) element.setAttribute("webkitdirectory", ""); }}
+              onChange={chooseFiles} disabled={uploading || readingFiles}
+              aria-label="Choose folder to upload" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="secondary" size="sm"
+                disabled={uploading || readingFiles} onClick={() => document.getElementById("upload-file")?.click()}>
+                <FileUp size={15} />Choose files
+              </Button>
+              <Button type="button" variant="secondary" size="sm"
+                disabled={uploading || readingFiles} onClick={() => document.getElementById("upload-folder")?.click()}>
+                <FolderOpen size={15} />Choose folder
+              </Button>
+              {selected.length > 0 && <Button type="button" variant="ghost" size="sm"
+                disabled={uploading || readingFiles} onClick={() => { setSelected([]); setError(""); }}>
+                Clear queue
+              </Button>}
+            </div>
+            {selected.length > 0 && <div className="rounded-xl border border-zinc-200 p-3 dark:border-white/10">
+              <p className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                Upload queue · {selected.length} {selected.length === 1 ? "file" : "files"}
+              </p>
+              <ul className="max-h-36 space-y-1 overflow-auto text-xs">
+                {selected.map((entry, index) => <li key={entry.filename + ":" + index}
+                  className="flex items-center justify-between gap-2 py-1">
+                  <span className="min-w-0 flex-1 break-all">{entry.filename}</span>
+                  <span className="shrink-0 text-zinc-500">{sizeText(entry.file.size)}</span>
+                  <Button size="icon" variant="ghost" className="size-7 shrink-0"
+                    disabled={uploading} aria-label={"Remove " + entry.filename + " from queue"}
+                    onClick={() => setSelected(previous => previous.filter((_, item) => item !== index))}>
+                    <X size={14} />
+                  </Button>
+                </li>)}
+              </ul>
+            </div>}
             <div>
               <label htmlFor="upload-storage-id" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Storage ID</label>
               {storageIds.length ? (
@@ -333,44 +465,70 @@ export default function Admin() {
                 autoComplete="off" placeholder="At least 4 characters; generated codes have 8" disabled={uploading}/>
             </div>}
             {uploading && <div>
-              <div role="status" aria-live="polite" className="mb-2 flex justify-between text-xs text-zinc-600 dark:text-zinc-400"><span>{processing ? "Processing file…" : "Upload progress"}</span><span>{processing ? "Finalizing" : progress + "%"}</span></div>
+              <div role="status" aria-live="polite"
+                className="mb-2 flex flex-wrap justify-between gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+                <span className="min-w-0 break-all">
+                  {processing ? "Processing file…" : "Upload progress"} ·
+                  {" " + uploadIndex + " / " + batchCount}
+                  {" · " + currentFilename}
+                </span>
+                <span>{overallProgress}% overall · {processing ? "Finalizing" : progress + "% current"}</span>
+              </div>
               <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: progress + "%" }}/>
+                <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: overallProgress + "%" }}/>
               </div>
             </div>}
-            <Button className="w-full" type="submit" disabled={!selected || uploading || !storageIds.includes(storageId)}>
+            <Button className="w-full" type="submit"
+              disabled={!selected.length || uploading || readingFiles || !storageIds.includes(storageId)}>
               {uploading ? <LoaderCircle size={17} className="animate-spin"/> : <FileUp size={17}/>}
-              {uploading ? (processing ? "Processing file…" : "Uploading…") : "Upload and create share link"}
+              {uploading ? (processing ? "Processing file…" : "Uploading…") :
+                "Upload " + selected.length + (selected.length === 1 ? " file" : " files") + " and create share links"}
             </Button>
           </form>
-          {uploadResult && <section aria-label="Upload result" role="status"
+          {uploadFailures.length > 0 && <section aria-label="Upload errors" role="alert"
+            className="mt-4 rounded-xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-700 dark:text-red-300">
+            <h3 className="font-semibold">{uploadFailures.length} file(s) failed</h3>
+            <ul className="mt-2 max-h-40 space-y-1 overflow-auto">
+              {uploadFailures.map(({ filename, message }, index) =>
+                <li key={index} className="break-all">{filename}: {message}</li>)}
+            </ul>
+            <p className="mt-2 text-xs">Failed files remain in the upload queue for retry.</p>
+          </section>}
+          {uploadResults.length > 0 && <section aria-label="Upload result"
             className="mt-6 rounded-xl border border-emerald-400/30 bg-emerald-400/5 p-4">
-            <h3 className="font-semibold text-emerald-700 dark:text-emerald-300">File uploaded successfully</h3>
-            <p className="mt-2 break-all text-sm">{uploadResult.filename} · {sizeText(uploadResult.size)}</p>
-            <p className="mt-3 text-xs text-zinc-500">Share link</p>
-            <code className="mt-1 block break-all rounded-lg bg-white p-3 text-xs dark:bg-zinc-950">
-              {location.origin + "/" + uploadResult.id}
-            </code>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary"
-                onClick={() => void copyShareValue(location.origin + "/" + uploadResult.id, "Share link")}>
-                Copy link
-              </Button>
-              <a className={buttonStyles({ variant: "secondary", size: "sm" })}
-                href={"/" + uploadResult.id} target="_blank" rel="noopener noreferrer">Open link</a>
-            </div>
-            <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
-              {uploadResult.mode === "protected" ? "Access code required" : "Public link"}
-              {" · Expires: " + timeText(uploadResult.expiresAt)}
-            </p>
-            {uploadResult.code && <div className="mt-3">
-              <p className="text-xs text-zinc-500">Access code</p>
-              <code className="mt-1 block break-all text-sm">{uploadResult.code}</code>
-              <Button size="sm" variant="secondary" className="mt-2"
-                onClick={() => void copyShareValue(uploadResult.code!, "Access code")}>
-                Copy access code
-              </Button>
-            </div>}
+            <h3 className="font-semibold text-emerald-700 dark:text-emerald-300">
+              {uploadResults.length} {uploadResults.length === 1 ? "file" : "files"} uploaded successfully
+            </h3>
+            <ul className="mt-3 max-h-96 space-y-4 overflow-auto">
+              {uploadResults.map(result => <li key={result.id}
+                className="border-t border-emerald-400/15 pt-3 first:border-0 first:pt-0">
+                <p className="break-all text-sm font-medium">{result.filename} · {sizeText(result.size)}</p>
+                <p className="mt-2 text-xs text-zinc-500">Share link</p>
+                <code className="mt-1 block break-all rounded-lg bg-white p-3 text-xs dark:bg-zinc-950">
+                  {location.origin + "/" + result.id}
+                </code>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button size="sm" variant="secondary"
+                    onClick={() => void copyShareValue(location.origin + "/" + result.id, "Share link")}>
+                    Copy link
+                  </Button>
+                  <a className={buttonStyles({ variant: "secondary", size: "sm" })}
+                    href={"/" + result.id} target="_blank" rel="noopener noreferrer">Open link</a>
+                </div>
+                <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
+                  {result.mode === "protected" ? "Access code required" : "Public link"}
+                  {" · Expires: " + timeText(result.expiresAt)}
+                </p>
+                {result.code && <div className="mt-3">
+                  <p className="text-xs text-zinc-500">Access code</p>
+                  <code className="mt-1 block break-all text-sm">{result.code}</code>
+                  <Button size="sm" variant="secondary" className="mt-2"
+                    onClick={() => void copyShareValue(result.code!, "Access code")}>
+                    Copy access code
+                  </Button>
+                </div>}
+              </li>)}
+            </ul>
           </section>}
         </Card>
         <Card className="flex flex-col justify-between p-6 sm:p-8">

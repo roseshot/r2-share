@@ -4,7 +4,7 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 
 ## Features
 
-- Upload files of up to **90 MiB** through a private administrator dashboard.
+- Upload single files, multiple files, or folders recursively through the administrator dashboard (**90 MiB per file**).
 - Choose a named storage ID at upload time; configure up to **32** B2 or R2 storage instances.
 - Create multiple links for one file, each with its own admin-only name, public/protected access, optional access code, and expiration.
 - Revoke or update one link without affecting other links or duplicating the stored object.
@@ -102,10 +102,26 @@ R2 uses `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` and the signing region `
 
 Storage IDs and provider types cannot be renamed. Deleting a storage configuration or changing its bucket/account/region is blocked while files or upload sessions reference it; credential rotation is supported. **Removing a storage configuration never deletes an entire bucket.**
 
-The upload dashboard shows a persistent result card after success, with the share URL,
-copy/open actions, access-code copy when applicable, and the link expiration. Progress
-distinguishes network transfer from server-side processing. If storage has not been
-configured, **Configure storage** jumps to the setup form.
+The upload dashboard supports **Choose files** (multiple selection), **Choose folder**
+(recursive selection), and dropping files or entire folders into the upload area. You may
+add multiple selections to the same queue or remove entries before uploading. Browser
+support for folder selection and folder drag-and-drop varies; both use the browser's
+directory APIs. Empty folders have no file contents to upload.
+
+Each file is uploaded **individually** to the selected Storage ID (sequentially,
+to limit resource usage); folders are not zipped. The selected folder's relative path,
+for example `photos/2026/image.jpg`, is preserved in the **display filename**,
+not as a physical bucket directory. File names including relative paths must be at
+most **240 characters**. Uploads are limited to **90 MiB per non-empty file**
+and **500 files per batch**.
+
+All files in a batch use the selected share expiration and access policy, but
+**each file receives its own share link** (and its own generated access code,
+when that option is enabled). The dashboard shows overall and per-file progress,
+then retains a separate share URL, copy/open actions, access code, and expiration
+for every successful file. Failed files remain queued for retry; successful files
+are not uploaded again. If storage has not been configured, **Configure storage**
+jumps to the setup form.
 
 ## Managing files and share links
 
