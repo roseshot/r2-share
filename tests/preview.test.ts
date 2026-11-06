@@ -46,6 +46,6 @@ describe("safe file format selection", () => {
     expect(component).toContain('"/preview"');
     const worker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
     expect(worker.indexOf('if (preview && (!format || !format.contentType))'))
-      .toBeLessThan(worker.indexOf("getObjectStore(env, record.storageId).get(dataKey(record.id))"));
+      .toBeLessThan(worker.indexOf("const store = getObjectStore(env, record.storageId)"));
   });
 });
