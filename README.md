@@ -95,6 +95,16 @@ A file can have any number of independent share links without duplicating the ob
 
 `bun run deploy` applies pending D1 migrations to the configured database before publishing. No new Worker Secrets or object storage variables are needed.
 
+## Dependabot updates and automatic merging
+
+Dependabot checks npm packages and GitHub Actions every **Thursday at 01:00 UTC**.
+
+The trusted `.github/workflows/dependabot-auto-merge.yml` workflow is triggered **only after the `CI` workflow finishes successfully for a pull request**. It squash-merges eligible Dependabot pull requests after verifying the current PR author, signed Dependabot commit, precise commit SHA, base commit SHA, mergeability, and update metadata. It never checks out or executes code from an untrusted PR.
+
+Only stable **Patch** and **Minor** dependency updates are eligible. Major updates, prerelease versions (including `dev`, `beta`, and `rc`), failing CI, and stale CI runs are left for manual review. The automation uses a post-CI merge, so a PR's GitHub `auto_merge` field does not need to be enabled beforehand.
+
+**Repository rule recommended:** In GitHub **Settings → Branches → Add branch protection rule**, protect `main` and enable **Require status checks to pass before merging**, selecting the **`validate`** check from the `CI` workflow. This separately prevents humans or other automation from merging changes without CI; the post-CI Dependabot workflow already enforces its own successful-CI gate. Repository administration permissions are required to create this rule. The workflow needs `contents: write` and `pull-requests: write` via `GITHUB_TOKEN`.
+
 ## Local development
 
 Copy `.dev.vars.example` to `.dev.vars`, set the three Worker Secrets, and supply `D1_DATABASE_NAME` and `D1_DATABASE_ID` to the development shell.
