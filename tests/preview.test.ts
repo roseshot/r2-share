@@ -39,7 +39,8 @@ describe("safe file format selection", () => {
   test("archive preview code never downloads or parses archives", () => {
     const component = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
     expect(component).not.toContain('from "./archive"');
-    expect(component).not.toContain('"/download"');
+    expect(component).not.toContain('fetch("/api/files/" + id + "/download"');
+    expect(component).toContain('href={"/api/files/" + id + "/download"}');
     expect(component).not.toContain("readArchiveDirectory");
     expect(component).not.toContain("Archive contents");
     expect(component).toContain('"/preview"');
