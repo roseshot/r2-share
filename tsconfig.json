@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2026",
     "lib": [
-      "ES2026",
+      "ESNext",
       "DOM",
       "DOM.Iterable"
     ],
