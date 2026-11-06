@@ -195,6 +195,51 @@ describe("independent multiple share links", () => {
     expect((await getShare(app.env, secondId))?.expiresAt).not.toBeNull();
   });
 
+  test("renames files and adjusts deletion dates without changing share link expiry", async () => {
+    const app = fixture();
+    await app.createFile();
+    const created = await app.admin("/files/" + fileId + "/shares", "POST", {
+      mode: "public", shareExpiresIn: 3600,
+    });
+    const { share: { id: secondId } } = await created.json() as { share: { id: string } };
+    const before = (await getShare(app.env, secondId))!;
+    const future = new Date(Date.now() + 3 * 86400000).toISOString();
+    const response = await app.admin("/files/" + fileId, "PATCH", {
+      filename: "Renamed notes.txt", fileExpiresAt: future,
+    });
+    expect(response.status).toBe(200);
+    const updated = (await getRecord(app.env, fileId))!;
+    expect(updated.filename).toBe("Renamed notes.txt");
+    expect(updated.expiresAt).toBe(future);
+    expect((await getShare(app.env, secondId))!.expiresAt).toBe(before.expiresAt);
+    expect((await getShare(app.env, secondId))!.revision).toBe(before.revision);
+    expect(app.objects.get(dataKey(fileId))).toBe("sample");
+    const shareDetails = await app.request("/api/files/" + secondId);
+    expect(await shareDetails.json()).toMatchObject({ filename: "Renamed notes.txt" });
+    const download = await app.request("/api/files/" + fileId + "/download");
+    expect(download.headers.get("Content-Disposition")).toContain("Renamed%20notes.txt");
+    expect((await app.admin("/files/" + fileId, "PATCH", { fileExpiresAt: null })).status).toBe(200);
+    expect((await getRecord(app.env, fileId))?.expiresAt).toBeNull();
+    expect((await getShare(app.env, secondId))?.expiresAt).toBe(before.expiresAt);
+  });
+
+  test("rejects invalid rename and deletion dates without changing file metadata", async () => {
+    const app = fixture();
+    await app.createFile();
+    const invalid = [
+      { filename: "" }, { filename: "x".repeat(241) }, { filename: "bad\\nname" },
+      { fileExpiresAt: "not-a-date" },
+      { fileExpiresAt: new Date(Date.now() - 86400000).toISOString() },
+      { fileExpiresAt: false },
+      { fileExpiresIn: 3600, fileExpiresAt: null },
+    ];
+    for (const body of invalid) {
+      expect((await app.admin("/files/" + fileId, "PATCH", body)).status).toBe(400);
+      expect((await getRecord(app.env, fileId))?.filename).toBe("sample.txt");
+      expect((await getRecord(app.env, fileId))?.expiresAt).toBeNull();
+    }
+  });
+
   test("revoking one link keeps the file and other links; deleting file removes all links", async () => {
     const app = fixture();
     await app.createFile();

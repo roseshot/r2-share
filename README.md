@@ -4,7 +4,7 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 
 ## Features
 
-- Upload single files, multiple files, or folders recursively through the administrator dashboard (**90 MiB per file**).
+- Upload multiple files, drag in folders as ZIP archives, or paste images, files, and plain text (**90 MiB per upload**).
 - Choose a named storage ID at upload time; configure up to **32** B2 or R2 storage instances.
 - Create multiple links for one file, each with its own admin-only name, public/protected access, optional access code, and expiration.
 - Revoke or update one link without affecting other links or duplicating the stored object.
@@ -103,17 +103,24 @@ R2 uses `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` and the signing region `
 Storage IDs and provider types cannot be renamed. Deleting a storage configuration or changing its bucket/account/region is blocked while files or upload sessions reference it; credential rotation is supported. **Removing a storage configuration never deletes an entire bucket.**
 
 The upload dashboard supports **Choose files** (multiple selection), **Choose folder**
-(recursive selection), and dropping files or entire folders into the upload area. You may
-add multiple selections to the same queue or remove entries before uploading. Browser
-support for folder selection and folder drag-and-drop varies; both use the browser's
-directory APIs. Empty folders have no file contents to upload.
+(recursive selection), and dragging files or folders into the upload area. Each folder
+becomes a **single ZIP archive** before uploading; nested file paths are retained
+inside the ZIP, and separate folder roots produce separate ZIPs. Loose files remain
+individual uploads. ZIP creation happens in the browser, not the Worker, and does
+not modify the original local files. Browser support for folder selection and
+folder drag-and-drop varies. Empty folders contain no uploadable files.
 
-Each file is uploaded **individually** to the selected Storage ID (sequentially,
-to limit resource usage); folders are not zipped. The selected folder's relative path,
-for example `photos/2026/image.jpg`, is preserved in the **display filename**,
-not as a physical bucket directory. File names including relative paths must be at
-most **240 characters**. Uploads are limited to **90 MiB per non-empty file**
-and **500 files per batch**.
+Press **Ctrl+V** (or the platform's Paste shortcut) on the admin page to enqueue
+clipboard **files and images**, or **plain text** saved as a timestamped `.txt`
+file. Pasting into inputs or other editable fields retains normal editing behavior.
+Clipboard permission and available formats vary by browser.
+
+Each queued item (loose file, generated ZIP, or pasted text/image) is uploaded
+**individually** to the selected Storage ID, sequentially. The limit is **90 MiB per
+upload**, including ZIP files; folder ZIP creation rejects folders with more than
+90 MiB of input, and verifies the final ZIP size. A folder has a limit of 500
+contained files; the upload queue holds at most 500 entries. Display filenames
+must be at most **240 characters**.
 
 All files in a batch use the selected share expiration and access policy, but
 **each file receives its own share link** (and its own generated access code,
@@ -126,6 +133,13 @@ jumps to the setup form.
 ## Managing files and share links
 
 After upload, a file receives one initial share link. Its link ID matches the file ID; further links get independent random 16-character IDs.
+
+In **File management**, click the **file name** to rename it, or click **File deletion**
+to set a specific local date and time (or **Never**). Changes take effect only after
+clicking **Save**; Cancel leaves the record unchanged. Renaming changes D1 display
+metadata and the download filename, not the object storage key or existing share URLs.
+The file deletion date applies to the file and its links, but editing it does
+**not change any individual Share Link expiration**.
 
 In **File management**, use:
 

@@ -493,11 +493,23 @@ app.patch("/:entry/api/files/:id", async c => {
   if (!record || expired(record)) return jsonError("File not found or expired", 404);
   const body = await readJson<Record<string, unknown>>(c.req.raw);
   if (!body || Array.isArray(body) || !Object.keys(body).length ||
-      Object.keys(body).some(key => !["mode", "code", "shareExpiresIn", "fileExpiresIn"].includes(key)) ||
-      (body.fileExpiresIn !== undefined && !EXPIRATIONS.some(x => x === body.fileExpiresIn))) {
+      Object.keys(body).some(key =>
+        !["mode", "code", "shareExpiresIn", "fileExpiresIn", "fileExpiresAt", "filename"].includes(key)) ||
+      (body.fileExpiresIn !== undefined && !EXPIRATIONS.some(x => x === body.fileExpiresIn)) ||
+      (body.fileExpiresAt !== undefined && body.fileExpiresIn !== undefined) ||
+      (body.fileExpiresAt !== undefined && body.fileExpiresAt !== null &&
+        (typeof body.fileExpiresAt !== "string" ||
+          !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(body.fileExpiresAt) ||
+          !Number.isFinite(Date.parse(body.fileExpiresAt)) ||
+          new Date(body.fileExpiresAt).toISOString() !== body.fileExpiresAt ||
+          Date.parse(body.fileExpiresAt) <= Date.now())) ||
+      (body.filename !== undefined &&
+        (typeof body.filename !== "string" || !body.filename.trim() ||
+          body.filename.length > 240 || /[\x00-\x1f\x7f]/.test(body.filename)))) {
     return jsonError("Invalid update parameters");
   }
-  const changes = Object.fromEntries(Object.entries(body).filter(([key]) => key !== "fileExpiresIn"));
+  const changes = Object.fromEntries(Object.entries(body).filter(([key]) =>
+    !["fileExpiresIn", "fileExpiresAt", "filename"].includes(key)));
   let code: string | null = null;
   if (Object.keys(changes).length) {
     if (!validShareChanges(changes)) return jsonError("Invalid share settings");
@@ -507,8 +519,11 @@ app.patch("/:entry/api/files/:id", async c => {
         changes.code.trim() && changes.code.trim().length < 4) return jsonError("Access code must contain at least 4 characters");
     ({ code } = await changeShare(c.env, existing, changes));
   }
-  if (body.fileExpiresIn !== undefined) {
-    record.expiresAt = expirationDate(body.fileExpiresIn as number);
+  if (body.fileExpiresIn !== undefined || body.fileExpiresAt !== undefined ||
+      body.filename !== undefined) {
+    if (body.filename !== undefined) record.filename = (body.filename as string).trim();
+    if (body.fileExpiresIn !== undefined) record.expiresAt = expirationDate(body.fileExpiresIn as number);
+    if (body.fileExpiresAt !== undefined) record.expiresAt = body.fileExpiresAt as string | null;
     await saveRecord(c.env, record);
   }
   return c.json({ file: serialize(record, await listShares(c.env, id)), code });

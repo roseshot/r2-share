@@ -39,6 +39,38 @@ describe("upload completion experience", () => {
     expect(admin).toContain('aria-label="Upload errors"');
   });
 
+  test("compresses folder selections but keeps individual files separate", () => {
+    const admin = source("src/admin.tsx");
+    const zip = source("src/folder-zip.ts");
+    expect(admin).toContain("await archiveFolders(selectedFiles(files))");
+    expect(admin).toContain("addToQueue(await archiveFolders(entries))");
+    expect(zip).toContain("zipSync(contents");
+    expect(zip).toContain('type: "application/zip"');
+    expect(zip).toContain("MAX_UPLOAD_BYTES");
+  });
+
+  test("supports paste uploads without hijacking editable fields", () => {
+    const admin = source("src/admin.tsx");
+    const paste = source("src/paste-upload.ts");
+    expect(admin).toContain('window.addEventListener("paste", handlePaste)');
+    expect(admin).toContain('pasteIsEditing(event.target)');
+    expect(admin).toContain("clipboardUploads(event.clipboardData)");
+    expect(paste).toContain('clipboard.getData("text/plain")');
+    expect(paste).toContain("Array.from(clipboard.files)");
+  });
+
+  test("requires Save for filename and file deletion date edits", () => {
+    const admin = source("src/admin.tsx");
+    const worker = source("worker/index.ts");
+    expect(admin).toContain('beginEdit(record, "name")');
+    expect(admin).toContain('beginEdit(record, "expiration")');
+    expect(admin).toContain('updates.filename = name');
+    expect(admin).toContain('updates.fileExpiresAt = date?.toISOString() ?? null');
+    expect(admin).toContain("Save");
+    expect(worker).toContain('record.filename = (body.filename as string).trim()');
+    expect(worker).toContain('record.expiresAt = body.fileExpiresAt as string | null');
+  });
+
   test("shows processing state without suggesting a completed upload", () => {
     const admin = source("src/admin.tsx");
     expect(admin).toContain("xhr.upload.onprogress");

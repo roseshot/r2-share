@@ -13,6 +13,8 @@ import AdminShares from "./admin-shares";
 import { ConfirmDialog } from "./confirm-dialog";
 import { successToast } from "./notifications";
 import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "./upload-queue";
+import { archiveFolders } from "./folder-zip";
+import { clipboardUploads, pasteIsEditing } from "./paste-upload";
 
 const base = location.pathname;
 const api = (path: string) => base + "/api" + path;
@@ -80,7 +82,10 @@ export default function Admin() {
   const [processing, setProcessing] = useState(false);
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
-  const [editFileDuration, setEditFileDuration] = useState(-1);
+  const [editKind, setEditKind] = useState<"name" | "expiration">("name");
+  const [editFilename, setEditFilename] = useState("");
+  const [editFileExpiresAt, setEditFileExpiresAt] = useState("");
+  const [editNeverExpires, setEditNeverExpires] = useState(true);
   const [saving, setSaving] = useState(false);
   const [vtLoading, setVtLoading] = useState<string | null>(null);
   const [vtResults, setVtResults] = useState<Record<string, VirusTotalReport>>({});
@@ -164,9 +169,19 @@ export default function Admin() {
     }
   }
 
-  function chooseFiles(event: ChangeEvent<HTMLInputElement>) {
-    addToQueue(selectedFiles(Array.from(event.currentTarget.files ?? [])));
+  async function chooseFiles(event: ChangeEvent<HTMLInputElement>) {
+    const isFolder = event.currentTarget.id === "upload-folder";
+    const files = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = "";
+    if (!files.length || uploading || readingFiles) return;
+    setReadingFiles(true);
+    try {
+      addToQueue(isFolder ? await archiveFolders(selectedFiles(files)) : selectedFiles(files));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to prepare folder ZIP");
+    } finally {
+      setReadingFiles(false);
+    }
   }
 
   async function handleDrop(event: DragEvent<HTMLLabelElement>) {
@@ -180,13 +195,35 @@ export default function Admin() {
         setError("No files found. Empty folders cannot be uploaded.");
         return;
       }
-      addToQueue(entries);
+      addToQueue(await archiveFolders(entries));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to read dropped files");
+      setError(reason instanceof Error ? reason.message : "Unable to prepare dropped files");
     } finally {
       setReadingFiles(false);
     }
   }
+
+  useEffect(() => {
+    if (auth !== "admin" || uploading || readingFiles) return;
+    function handlePaste(event: ClipboardEvent) {
+      if (!event.clipboardData || pasteIsEditing(event.target)) return;
+      const incoming = clipboardUploads(event.clipboardData);
+      if (!incoming.length) return;
+      event.preventDefault();
+      setSelected(previous => {
+        const result = appendUploads(previous, incoming);
+        if (result.rejected.length) {
+          setError(result.rejected.length + " pasted file(s) skipped. " + result.rejected[0].reason);
+        } else {
+          setError("");
+        }
+        return result.files;
+      });
+      setUploadFailures([]);
+    }
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [auth, uploading, readingFiles]);
 
   async function upload(event: FormEvent) {
     event.preventDefault();
@@ -297,23 +334,48 @@ export default function Admin() {
     }
   }
 
-  function beginEdit(record: ManagedFile) {
-    setEditId(record.id); setEditFileDuration(-1);
+  function beginEdit(record: ManagedFile, kind: "name" | "expiration") {
+    setEditId(record.id);
+    setEditKind(kind);
+    setEditFilename(record.filename);
+    setEditNeverExpires(record.fileExpiresAt === null);
+    if (record.fileExpiresAt) {
+      const date = new Date(record.fileExpiresAt);
+      setEditFileExpiresAt(new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+        .toISOString().slice(0, 16));
+    } else {
+      setEditFileExpiresAt("");
+    }
     setError("");
   }
 
   async function updateRecord(event: FormEvent) {
     event.preventDefault();
-    if (!editId || editFileDuration < 0) return;
+    if (!editId) return;
+    const updates: { filename?: string; fileExpiresAt?: string | null } = {};
+    if (editKind === "name") {
+      const name = editFilename.trim();
+      if (!name || name.length > 240 || /[\x00-\x1f\x7f]/.test(name)) {
+        setError("File name must be 1–240 characters without control characters");
+        return;
+      }
+      updates.filename = name;
+    } else {
+      const date = editNeverExpires ? null : new Date(editFileExpiresAt);
+      if (date !== null && (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now())) {
+        setError("Choose a future deletion date or Never");
+        return;
+      }
+      updates.fileExpiresAt = date?.toISOString() ?? null;
+    }
     setSaving(true); setError("");
     try {
       await requestJson(api("/files/" + editId), {
-        method: "PATCH", ...jsonBody({
-          fileExpiresIn: editFileDuration
-        })
+        method: "PATCH", ...jsonBody(updates),
       });
       setVtResults(previous => { const next = { ...previous }; delete next[editId]; return next; });
-      setEditId(null); await refresh(); successToast("File settings updated");
+      setEditId(null); await refresh();
+      successToast(editKind === "name" ? "File renamed" : "File deletion date updated");
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
   }
@@ -384,18 +446,18 @@ export default function Admin() {
               <span className="max-w-full break-words text-sm font-medium">
                 {readingFiles ? "Reading selected files…" :
                   selected.length ? selected.length + " file(s) ready to upload" :
-                  "Choose files or drag files and folders here"}
+                  "Choose files, folders or paste with Ctrl+V"}
               </span>
               <span className="mt-2 text-xs text-zinc-500">
                 {selected.length ? sizeText(selected.reduce((total, entry) => total + entry.file.size, 0)) + " total" :
-                  "Up to 90 MiB per file · 500 files per batch"}
+                  "Folders become ZIP files · 90 MiB per upload · 500 queued files"}
               </span>
             </label>
             <input id="upload-file" className="sr-only" type="file" multiple
-              onChange={chooseFiles} disabled={uploading || readingFiles} />
+              onChange={event => { void chooseFiles(event); }} disabled={uploading || readingFiles} />
             <input id="upload-folder" className="sr-only" type="file" multiple
               ref={element => { if (element) element.setAttribute("webkitdirectory", ""); }}
-              onChange={chooseFiles} disabled={uploading || readingFiles}
+              onChange={event => { void chooseFiles(event); }} disabled={uploading || readingFiles}
               aria-label="Choose folder to upload" />
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="secondary" size="sm"
@@ -404,7 +466,7 @@ export default function Admin() {
               </Button>
               <Button type="button" variant="secondary" size="sm"
                 disabled={uploading || readingFiles} onClick={() => document.getElementById("upload-folder")?.click()}>
-                <FolderOpen size={15} />Choose folder
+                <FolderOpen size={15} />Choose folder (ZIP)
               </Button>
               {selected.length > 0 && <Button type="button" variant="ghost" size="sm"
                 disabled={uploading || readingFiles} onClick={() => { setSelected([]); setError(""); }}>
@@ -590,13 +652,22 @@ export default function Admin() {
             <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="break-all text-base font-medium">{record.filename}</span>
+                  <button type="button" className="break-all text-left text-base font-medium underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-2 focus-visible:outline-emerald-400"
+                    aria-label={"Rename " + record.filename} title="Click to rename"
+                    onClick={() => beginEdit(record, "name")}>{record.filename}</button>
                   <Badge variant="muted">{record.storageId}</Badge>
 
                 </div>
                 <p className="mt-2 text-xs text-zinc-500">{sizeText(record.size)} · {new Date(record.createdAt).toLocaleString("en-US")}</p>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-400">
-                  <span>File: {timeText(record.fileExpiresAt)}</span>
+                  <button type="button" className="text-left underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-2 focus-visible:outline-emerald-400"
+                    aria-label={"Edit file deletion date for " + record.filename}
+                    title="Click to change deletion date"
+                    onClick={() => beginEdit(record, "expiration")}>
+                    File deletion: {record.fileExpiresAt
+                      ? new Date(record.fileExpiresAt).toLocaleString() + " (" + timeText(record.fileExpiresAt) + ")"
+                      : "Never"}
+                  </button>
                 </div>
 
               </div>
@@ -608,7 +679,7 @@ export default function Admin() {
                   {vtLoading === record.id ? <LoaderCircle size={15} className="animate-spin"/> : <ShieldAlert size={15}/>}
                   VirusTotal
                 </Button>}
-                <Button size="sm" variant="ghost" onClick={() => editId === record.id ? setEditId(null) : beginEdit(record)}>Settings</Button>
+                <Button size="sm" variant="ghost" onClick={() => editId === record.id ? setEditId(null) : beginEdit(record, "expiration")}>Settings</Button>
                 <Button size="icon" variant="destructive" aria-label="Delete file" onClick={() => { setConfirmFile(record); setDeleteError(""); }}><Trash2 size={16}/></Button>
               </div>
             </div>
@@ -621,19 +692,37 @@ export default function Admin() {
             {editId === record.id && <form
               className="mt-5 space-y-4 rounded-xl border border-zinc-200 bg-zinc-100/80 p-4 dark:border-white/10 dark:bg-black/20"
               onSubmit={updateRecord}>
-              <h3 className="text-sm font-semibold">File retention settings</h3>
-              <label htmlFor="edit-file-expiration" className="block text-xs text-zinc-600 dark:text-zinc-400">
-                File expiration
-              </label>
-              <Select id="edit-file-expiration" value={String(editFileDuration)}
-                onValueChange={value => setEditFileDuration(Number(value))}
-                options={[
-                  { value: "-1", label: "Keep unchanged" },
-                  ...durations.map(d => ({ value: String(d.seconds), label: d.label + " (from now)" })),
-                ]} />
+              <h3 className="text-sm font-semibold">
+                {editKind === "name" ? "Rename file" : "File deletion date"}
+              </h3>
+              {editKind === "name" ? <>
+                <label htmlFor="edit-filename" className="block text-xs text-zinc-600 dark:text-zinc-400">
+                  File name
+                </label>
+                <Input id="edit-filename" value={editFilename} maxLength={240} required
+                  onChange={event => setEditFilename(event.target.value)} />
+                <p className="text-xs text-zinc-500">Only the displayed file name changes; existing share URLs stay the same.</p>
+              </> : <>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={editNeverExpires}
+                    onChange={event => setEditNeverExpires(event.target.checked)} />
+                  Never delete automatically
+                </label>
+                {!editNeverExpires && <div>
+                  <label htmlFor="edit-file-expiration" className="mb-2 block text-xs text-zinc-600 dark:text-zinc-400">
+                    Delete file on
+                  </label>
+                  <Input id="edit-file-expiration" type="datetime-local" required
+                    value={editFileExpiresAt} onChange={event => setEditFileExpiresAt(event.target.value)} />
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Uses your local time. Expired files are removed by scheduled cleanup.
+                  </p>
+                </div>}
+                <p className="text-xs text-zinc-500">Share link expiration settings are unchanged.</p>
+              </>}
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" size="sm" disabled={saving || editFileDuration < 0}>
-                  {saving ? "Saving…" : "Save file settings"}
+                <Button type="submit" size="sm" disabled={saving || (editKind === "expiration" && !editNeverExpires && !editFileExpiresAt)}>
+                  {saving ? "Saving…" : "Save"}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditId(null)}>Cancel</Button>
               </div>
