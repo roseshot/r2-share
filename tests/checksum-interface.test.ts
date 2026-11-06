@@ -11,7 +11,7 @@ describe("checksum display and platform instructions", () => {
   test("keeps the SHA-256 checksum copy button", () => {
     const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain("navigator.clipboard.writeText(value)");
-    expect(source).toContain('"Copy " + label + " checksum"');
+    expect(source).toContain('aria-label="Copy SHA-256 checksum"');
     expect(source).toContain('aria-live="polite"');
     expect(source).toContain("How to verify SHA-256");
   });
@@ -82,22 +82,29 @@ describe("checksum display and platform instructions", () => {
     expect(source).toContain("font-mono");
   });
 
-  test("uses contextual file icons and keeps the modified timestamp on one line", () => {
+  test("wraps share metadata and explains the modification date in an accessible tip", () => {
     const source = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
     expect(source).toContain("const FileIcon =");
     for (const icon of ["FileImage", "FileAudio", "FileVideo", "Archive", "Link2Off", "CalendarClock"]) {
       expect(source).toContain(icon);
     }
     expect(source).toContain('aria-label="Original modification date"');
-    expect(source).toContain("whitespace-nowrap");
-    expect(source).toContain("overflow-x-auto");
+    expect(source).toContain("flex-wrap");
+    expect(source).toContain("whitespace-normal");
+    expect(source).toContain("break-words");
+    expect(source).not.toContain("overflow-x-auto");
+    expect(source).not.toContain("whitespace-nowrap");
+    expect(source).toContain('import { Popover } from "@base-ui/react/popover"');
+    expect(source).toContain('aria-label="About the modification date"');
+    expect(source).toContain("<Popover.Description");
+    expect(source).toContain("The date the file was last modified before upload");
     expect(source).toContain("<HardDrive size={16}");
     expect(source).not.toContain("HardDriveDownload");
     const fileTypePosition = source.indexOf("<FileType size={16}");
     const modifiedPosition = source.indexOf("<CalendarClock size={16}");
     expect(fileTypePosition).toBeGreaterThan(0);
     expect(modifiedPosition).toBeGreaterThan(fileTypePosition);
-    expect(source).toContain("<span>Modified:</span>");
+    expect(source).not.toContain("<span>Modified:</span>");
     expect(source).not.toContain('<section className="mt-6" aria-label="Original modification date">');
     expect(source).toContain("file.originalModifiedAt");
     expect(source).not.toContain("CalendarPlus");
@@ -109,7 +116,18 @@ describe("checksum display and platform instructions", () => {
     const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain("<Fingerprint size={15}");
     expect(source).toContain("<ShieldCheck size={17}");
-    expect(source).toContain('onClick={() => void copy(checksums[key], label)}');
+    expect(source).toContain('onClick={() => void copy(checksums.sha256, "SHA-256")}');
+  });
+
+  test("uses SHA-256 as the sole checksum heading on the share page", () => {
+    const checksum = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    expect(checksum).toContain('aria-label="SHA-256"');
+    expect(checksum).toContain("SHA-256\n    </h2>");
+    expect(checksum).not.toContain("File checksums");
+    expect(checksum).not.toContain("checksumAlgorithms.map");
+    expect(share).toContain('<h2 className="mb-2 text-sm font-medium">SHA-256</h2>');
+    expect(share).not.toContain("File checksums");
   });
 
   test("removes the Windows version-support sentence from the instructions", () => {
@@ -150,7 +168,7 @@ describe("checksum display and platform instructions", () => {
     expect(html).toContain("fonts.gstatic.com");
     expect(css).toContain('--font-mono: "JetBrains Mono"');
     expect(source).toContain("font-mono");
-    expect(source).toContain('{checksums[key]}');
+    expect(source).toContain('{checksums.sha256}');
     expect(source).toContain('{sha256}');
   });
 

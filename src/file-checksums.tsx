@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Apple, Check, ChevronDown, ClipboardCopy, Fingerprint, PanelsTopLeft, ShieldCheck, Terminal } from "lucide-react";
 import { Button } from "./ui";
-import { checksumAlgorithms } from "./file-info";
 import type { FileChecksums } from "./lib";
 
 /** Single-quoted paths prevent filenames from running shell commands. */
@@ -50,30 +49,21 @@ export function FileChecksums({ checksums, filename }: { checksums: FileChecksum
     }
   }
 
-  return <section className="mt-6" aria-label="File checksums">
+  return <section className="mt-6" aria-label="SHA-256">
     <h2 className="mb-3 flex items-center gap-2 text-sm font-medium">
       <ShieldCheck size={17} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
-      File checksums
+      SHA-256
     </h2>
-    <dl className="space-y-3">
-      {checksumAlgorithms.map(({ key, label }) => {
-        return <div key={key} className="space-y-1">
-          <dt className="flex items-center gap-1.5 font-mono text-xs font-medium text-zinc-500">
-            <Fingerprint size={15} className="shrink-0" aria-hidden="true" />
-            {label}
-          </dt>
-          <dd className="flex items-center gap-1.5 rounded-lg bg-zinc-100 p-1.5 pl-2.5 text-xs leading-5 text-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300">
-            <code className="min-w-0 flex-1 break-all font-mono select-all">{checksums[key]}</code>
-            <Button size="icon" variant="ghost" className="shrink-0"
-              aria-label={"Copy " + label + " checksum"} title={"Copy " + label}
-              onClick={() => void copy(checksums[key], label)}>
-              {message === label + " copied" ? <Check size={16} aria-hidden="true" /> :
-                <ClipboardCopy size={16} aria-hidden="true" />}
-            </Button>
-          </dd>
-        </div>;
-      })}
-    </dl>
+    <div className="flex items-center gap-1.5 rounded-lg bg-zinc-100 p-1.5 pl-2.5 text-xs leading-5 text-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300">
+      <Fingerprint size={15} className="shrink-0 text-zinc-500" aria-hidden="true" />
+      <code className="min-w-0 flex-1 break-all font-mono select-all">{checksums.sha256}</code>
+      <Button size="icon" variant="ghost" className="shrink-0"
+        aria-label="Copy SHA-256 checksum" title="Copy SHA-256"
+        onClick={() => void copy(checksums.sha256, "SHA-256")}>
+        {message === "SHA-256 copied" ? <Check size={16} aria-hidden="true" /> :
+          <ClipboardCopy size={16} aria-hidden="true" />}
+      </Button>
+    </div>
     <p className="mt-2 min-h-4 text-xs text-zinc-500" role="status" aria-live="polite">{message}</p>
     <details className="group mt-3 rounded-xl border border-zinc-200 dark:border-white/10">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden">

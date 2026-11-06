@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Archive, ArrowDownToLine, CalendarClock, FileAudio, FileImage, FileText, FileType, FileVideo, HardDrive, KeyRound, Link2Off } from "lucide-react";
+import { Archive, ArrowDownToLine, CalendarClock, FileAudio, FileImage, FileText, FileType, FileVideo, HardDrive, Info, KeyRound, Link2Off } from "lucide-react";
+import { Popover } from "@base-ui/react/popover";
 import { Button, Card, Input } from "./ui";
 import { jsonBody, requestJson, sizeText, type Share } from "./lib";
 import { describeFileType } from "./file-info";
@@ -98,28 +99,44 @@ export default function SharePage() {
                   <FileIcon size={25} className="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
                   {file.filename}
                 </h1>
-                <div className="mt-4 flex items-center gap-5 overflow-x-auto whitespace-nowrap text-sm text-zinc-600 dark:text-zinc-400">
-                  <span className="inline-flex shrink-0 items-center gap-1.5">
-                    <HardDrive size={16} aria-hidden="true" />{sizeText(file.size!)}
+                <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-zinc-600 dark:text-zinc-400">
+                  <span className="inline-flex items-center gap-1.5">
+                    <HardDrive size={16} className="shrink-0" aria-hidden="true" />{sizeText(file.size!)}
                   </span>
-                  <span className="inline-flex shrink-0 items-center gap-1.5">
-                    <FileType size={16} aria-hidden="true" />{describeFileType(file.filename!, file.mime)}
+                  <span className="inline-flex min-w-0 items-center gap-1.5 break-words">
+                    <FileType size={16} className="shrink-0" aria-hidden="true" />{describeFileType(file.filename!, file.mime)}
                   </span>
-                  <span className="inline-flex shrink-0 items-center gap-1.5" aria-label="Original modification date">
-                    <CalendarClock size={16} aria-hidden="true" />
-                    <span>Modified:</span>
+                  <span className="inline-flex min-w-0 max-w-full items-start gap-1.5">
+                    <CalendarClock size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
                     {file.originalModifiedAt ?
-                      <time dateTime={file.originalModifiedAt} title={file.originalModifiedAt}>
+                      <time className="min-w-0 whitespace-normal break-words" aria-label="Original modification date"
+                        dateTime={file.originalModifiedAt}>
                         {new Date(file.originalModifiedAt).toLocaleString()}
                       </time> :
                       <span>Unavailable</span>}
+                    <Popover.Root>
+                      <Popover.Trigger aria-label="About the modification date"
+                        className="shrink-0 rounded-md text-zinc-500 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 dark:text-zinc-400">
+                        <Info size={15} aria-hidden="true" />
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Positioner sideOffset={8} className="z-50">
+                          <Popover.Popup className="w-[min(18rem,calc(100vw-2rem))] whitespace-normal break-words rounded-xl border border-zinc-200 bg-white p-3 text-sm leading-5 text-zinc-800 shadow-xl outline-none dark:border-white/15 dark:bg-zinc-900 dark:text-zinc-200">
+                            <Popover.Title className="font-medium">Original modification date</Popover.Title>
+                            <Popover.Description className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                              The date the file was last modified before upload, when available.
+                            </Popover.Description>
+                          </Popover.Popup>
+                        </Popover.Positioner>
+                      </Popover.Portal>
+                    </Popover.Root>
                   </span>
                 </div>
                 <FilePreview id={id} file={file} />
                 {file.checksums ? <FileChecksums checksums={file.checksums} filename={file.filename!} /> :
-                  <section className="mt-6" aria-label="File checksums">
-                    <h2 className="mb-2 text-sm font-medium">File checksums</h2>
-                    <p className="text-sm text-zinc-500">Checksums are unavailable for this file.</p>
+                  <section className="mt-6" aria-label="SHA-256">
+                    <h2 className="mb-2 text-sm font-medium">SHA-256</h2>
+                    <p className="text-sm text-zinc-500">SHA-256 is unavailable for this file.</p>
                   </section>}
                 <div className="mt-8 border-t border-zinc-200 dark:border-white/10 pt-7">
                   <Button className="w-full" disabled={downloadBusy} onClick={() => void download()}>
