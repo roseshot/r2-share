@@ -99,6 +99,24 @@ describe("independent multiple share links", () => {
     expect((await app.request("/api/files/" + fileId + "/download")).status).toBe(200);
   });
 
+  test("archive files remain downloadable but cannot be previewed", async () => {
+    const app = fixture();
+    const file = await app.createFile();
+    file.filename = "backup.tar.gz";
+    file.mime = "application/gzip";
+    await saveRecord(app.env, file);
+
+    const preview = await app.request("/api/files/" + fileId + "/preview");
+    expect(preview.status).toBe(400);
+    expect(await preview.json()).toMatchObject({
+      error: "Preview not supported for this file type",
+    });
+
+    const download = await app.request("/api/files/" + fileId + "/download");
+    expect(download.status).toBe(200);
+    expect(await download.text()).toBe("sample");
+  });
+
   test("invalidates only the edited share authorization, not sibling links", async () => {
     const app = fixture();
     await app.createFile("protected");

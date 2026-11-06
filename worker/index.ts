@@ -124,15 +124,14 @@ app.post("/api/files/:id/unlock", async c => {
 });
 
 async function streamFile(env: Bindings, record: FileRecord, preview = false): Promise<Response> {
+  const format = previewFormat(record.filename, record.mime);
+  if (preview && (!format || !format.contentType)) {
+    return jsonError("Preview not supported for this file type", 400);
+  }
   if (!isStorageConfigured(env, record.storageId)) return jsonError("Storage ID is not configured", 503);
   const object = await getObjectStore(env, record.storageId).get(dataKey(record.id));
   if (!object) return jsonError("File not found", 404);
   const filename = encodeURIComponent(record.filename);
-  const format = previewFormat(record.filename, record.mime);
-  if (preview && (!format || !format.contentType)) {
-    await object.body.cancel();
-    return jsonError("Preview not supported for this file type", 400);
-  }
   return new Response(object.body, {
     headers: {
       "Content-Type": preview ? format!.contentType! : record.mime || "application/octet-stream",

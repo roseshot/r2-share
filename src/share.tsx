@@ -6,7 +6,7 @@ import { describeFileType } from "./file-info";
 import { FileChecksums } from "./file-checksums";
 import { ThemeSwitcher } from "./theme";
 import { FilePreview } from "./file-preview";
-import { previewFormat } from "./preview-types";
+import { isArchiveFile, previewFormat } from "./preview-types";
 
 export default function SharePage() {
   const id = location.pathname.slice(1);
@@ -51,8 +51,7 @@ export default function SharePage() {
   const FileIcon = format?.kind === "image" ? FileImage :
     format?.kind === "audio" ? FileAudio :
     format?.kind === "video" ? FileVideo :
-    format?.kind === "zip" || format?.kind === "tar" || format?.kind === "tgz" ?
-      Archive : FileText;
+    isArchiveFile(file?.filename ?? "", file?.mime) ? Archive : FileText;
 
   return <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-5 py-14">
     <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,.16),transparent_70%)]" />

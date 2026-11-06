@@ -9,7 +9,7 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 - Create multiple links for one file, each with its own public/protected access, optional access code, and expiration.
 - Revoke or update one link without affecting other links or duplicating the stored object.
 - Keep file retention separate from link expiration; manage file deletion independently.
-- Download files or preview supported formats in the browser.
+- Download any supported file or preview images, PDFs, text, audio, and video in the browser. Archive files (ZIP, TAR, TGZ, etc.) are download-only; their contents are not parsed or previewed.
 - Verify uploaded content with Worker-computed **SHA-256**; optionally look up the hash on VirusTotal.
 - Apply database changes through versioned SQL migrations.
 

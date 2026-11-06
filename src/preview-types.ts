@@ -1,4 +1,4 @@
-export type PreviewKind = "image" | "pdf" | "text" | "audio" | "video" | "zip" | "tar" | "tgz";
+export type PreviewKind = "image" | "pdf" | "text" | "audio" | "video";
 
 const image: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
@@ -17,13 +17,21 @@ const textExtensions = new Set([
   "py", "go", "rs", "java", "c", "cpp", "h", "sql", "svg",
 ]);
 const extensionOf = (filename: string): string => filename.split(".").pop()?.toLowerCase() ?? "";
+const archiveExtensions = new Set(["zip", "tar", "tgz", "gz", "7z", "rar"]);
+const archiveMimeTypes = new Set([
+  "application/zip", "application/x-zip-compressed", "application/x-tar",
+  "application/gzip", "application/x-gzip", "application/x-7z-compressed",
+  "application/vnd.rar", "application/x-rar-compressed",
+]);
+
+export function isArchiveFile(filename: string, mime = ""): boolean {
+  const normalized = mime.split(";")[0].trim().toLowerCase();
+  return archiveExtensions.has(extensionOf(filename)) || archiveMimeTypes.has(normalized);
+}
 
 export function previewFormat(filename: string, mime = ""): { kind: PreviewKind; contentType?: string } | null {
-  const lower = filename.toLowerCase();
+  if (isArchiveFile(filename, mime)) return null;
   const extension = extensionOf(filename);
-  if (lower.endsWith(".tar.gz") || extension === "tgz") return { kind: "tgz" };
-  if (extension === "zip") return { kind: "zip" };
-  if (extension === "tar") return { kind: "tar" };
   if (image[extension]) return { kind: "image", contentType: image[extension] };
   if (audio[extension]) return { kind: "audio", contentType: audio[extension] };
   if (video[extension]) return { kind: "video", contentType: video[extension] };
@@ -32,8 +40,6 @@ export function previewFormat(filename: string, mime = ""): { kind: PreviewKind;
 
   // Browsers and upload tools sometimes omit the extension or upload with a generic name.
   const normalized = mime.split(";")[0].trim().toLowerCase();
-  if (normalized === "application/zip") return { kind: "zip" };
-  if (normalized === "application/x-tar") return { kind: "tar" };
   if (normalized === "application/pdf") return { kind: "pdf", contentType: "application/pdf" };
   if (Object.values(image).includes(normalized)) return { kind: "image", contentType: normalized };
   if (Object.values(audio).includes(normalized)) return { kind: "audio", contentType: normalized };
