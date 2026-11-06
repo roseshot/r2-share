@@ -119,7 +119,7 @@ export default function AdminSettings({ api, onSaved }: {
   }
 
   return (
-    <Card className="mt-7 p-6 sm:p-8">
+    <Card id="object-storage-settings" className="mt-7 scroll-mt-6 p-6 sm:p-8">
       <h2 className="text-lg font-semibold">Object storage settings</h2>
       <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
         Each storage has a unique, permanent ID and independent B2 or R2 credentials,
@@ -209,7 +209,7 @@ function Field({ label, value, setValue, secret = false, placeholder, disabled =
 }) {
   return <label className="block text-sm">
     <span className="mb-1 block font-medium">{label}</span>
-    <Input type={secret ? "password" : "text"} value={value} disabled={disabled}
+    <Input aria-label={label} type={secret ? "password" : "text"} value={value} disabled={disabled}
       onChange={event => setValue(event.target.value)}
       autoComplete="off" spellCheck={false} placeholder={placeholder} />
   </label>;

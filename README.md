@@ -102,6 +102,11 @@ R2 uses `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` and the signing region `
 
 Storage IDs and provider types cannot be renamed. Deleting a storage configuration or changing its bucket/account/region is blocked while files or upload sessions reference it; credential rotation is supported. **Removing a storage configuration never deletes an entire bucket.**
 
+The upload dashboard shows a persistent result card after success, with the share URL,
+copy/open actions, access-code copy when applicable, and the link expiration. Progress
+distinguishes network transfer from server-side processing. If storage has not been
+configured, **Configure storage** jumps to the setup form.
+
 ## Managing files and share links
 
 After upload, a file receives one initial share link. Its link ID matches the file ID; further links get independent random 16-character IDs.

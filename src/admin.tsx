@@ -58,6 +58,11 @@ export default function Admin() {
   const [code, setCode] = useState("");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [processing, setProcessing] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{
+    id: string; filename: string; size: number; mode: Mode; code: string | null;
+    expiresAt: string | null;
+  } | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editFileDuration, setEditFileDuration] = useState(-1);
   const [saving, setSaving] = useState(false);
@@ -104,6 +109,18 @@ export default function Admin() {
     finally { setFiles([]); setAuth("guest"); setPassword(""); }
   }
 
+  function configureStorage() {
+    const section = document.getElementById("object-storage-settings");
+    section?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const input = section?.querySelector<HTMLInputElement>('input[aria-label="Storage ID"]');
+    window.setTimeout(() => input?.focus({ preventScroll: true }), 350);
+  }
+
+  async function copyShareValue(value: string, label: string) {
+    try { await navigator.clipboard.writeText(value); successToast(label + " copied"); }
+    catch { setError("Clipboard access failed. Copy the value manually."); }
+  }
+
   async function upload(event: FormEvent) {
     event.preventDefault();
     if (!selected || uploading) return;
@@ -113,7 +130,7 @@ export default function Admin() {
     if (selected.size > 90 * 1024 * 1024 || selected.size === 0) {
       setError("File size must be greater than zero and at most 90 MiB"); return;
     }
-    setUploading(true); setProgress(0); setError("");
+    setUploading(true); setProcessing(false); setProgress(0); setError(""); setUploadResult(null);
     try {
       const init = await requestJson<{ id: string; token: string; code: string | null }>(
         api("/uploads"),
@@ -130,7 +147,13 @@ export default function Admin() {
         xhr.withCredentials = true;
         xhr.setRequestHeader("X-Upload-Token", init.token);
         xhr.setRequestHeader("Content-Type", "application/octet-stream");
-        xhr.upload.onprogress = e => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
+        xhr.upload.onprogress = e => {
+          if (e.lengthComputable) {
+            const percentage = Math.round(e.loaded / e.total * 100);
+            setProgress(percentage);
+            if (percentage === 100) setProcessing(true);
+          }
+        };
         xhr.onerror = () => reject(new Error("Network error during upload"));
         xhr.onabort = () => reject(new Error("Upload canceled"));
         xhr.onload = () => {
@@ -140,13 +163,18 @@ export default function Admin() {
         };
         xhr.send(selected);
       });
+      setUploadResult({
+        id: init.id, filename: selected.name, size: selected.size, mode,
+        code: init.code, expiresAt: shareDuration === 0 ? null :
+          new Date(Date.now() + shareDuration * 1000).toISOString(),
+      });
       successToast("File uploaded successfully", init.code);
       setSelected(null); setCode(""); setMode("public"); setProgress(0);
       const field = document.getElementById("upload-file") as HTMLInputElement | null;
       if (field) field.value = "";
       await refresh();
     } catch (e) { setError((e as Error).message); }
-    finally { setUploading(false); }
+    finally { setUploading(false); setProcessing(false); }
   }
 
   async function checkVirusTotal(record: ManagedFile) {
@@ -254,9 +282,12 @@ export default function Admin() {
                   onValueChange={setStorageId}
                   options={storageIds.map(id => ({ value: id, label: id }))} />
               ) : (
-                <p className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-3 text-sm">
-                  Add a storage ID in Object storage settings below before uploading.
-                </p>
+                <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-3 text-sm">
+                  <p>No storage configured. Add a storage ID to start uploading.</p>
+                  <Button type="button" size="sm" variant="secondary" className="mt-3" onClick={configureStorage}>
+                    Configure storage
+                  </Button>
+                </div>
               )}
             </div>
             <div><label htmlFor="upload-share-expiration" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Share expiration</label>
@@ -281,16 +312,45 @@ export default function Admin() {
                 autoComplete="off" placeholder="At least 4 characters; generated codes have 8" disabled={uploading}/>
             </div>}
             {uploading && <div>
-              <div className="mb-2 flex justify-between text-xs text-zinc-600 dark:text-zinc-400"><span>Upload progress</span><span>{progress}%</span></div>
+              <div role="status" aria-live="polite" className="mb-2 flex justify-between text-xs text-zinc-600 dark:text-zinc-400"><span>{processing ? "Processing file…" : "Upload progress"}</span><span>{processing ? "Finalizing" : progress + "%"}</span></div>
               <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
                 <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: progress + "%" }}/>
               </div>
             </div>}
             <Button className="w-full" type="submit" disabled={!selected || uploading || !storageIds.includes(storageId)}>
               {uploading ? <LoaderCircle size={17} className="animate-spin"/> : <FileUp size={17}/>}
-              {uploading ? "Uploading…" : "Upload and create share link"}
+              {uploading ? (processing ? "Processing file…" : "Uploading…") : "Upload and create share link"}
             </Button>
           </form>
+          {uploadResult && <section aria-label="Upload result" role="status"
+            className="mt-6 rounded-xl border border-emerald-400/30 bg-emerald-400/5 p-4">
+            <h3 className="font-semibold text-emerald-700 dark:text-emerald-300">File uploaded successfully</h3>
+            <p className="mt-2 break-all text-sm">{uploadResult.filename} · {sizeText(uploadResult.size)}</p>
+            <p className="mt-3 text-xs text-zinc-500">Share link</p>
+            <code className="mt-1 block break-all rounded-lg bg-white p-3 text-xs dark:bg-zinc-950">
+              {location.origin + "/" + uploadResult.id}
+            </code>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary"
+                onClick={() => void copyShareValue(location.origin + "/" + uploadResult.id, "Share link")}>
+                Copy link
+              </Button>
+              <a className={buttonStyles({ variant: "secondary", size: "sm" })}
+                href={"/" + uploadResult.id} target="_blank" rel="noopener noreferrer">Open link</a>
+            </div>
+            <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
+              {uploadResult.mode === "protected" ? "Access code required" : "Public link"}
+              {" · Expires: " + timeText(uploadResult.expiresAt)}
+            </p>
+            {uploadResult.code && <div className="mt-3">
+              <p className="text-xs text-zinc-500">Access code</p>
+              <code className="mt-1 block break-all text-sm">{uploadResult.code}</code>
+              <Button size="sm" variant="secondary" className="mt-2"
+                onClick={() => void copyShareValue(uploadResult.code!, "Access code")}>
+                Copy access code
+              </Button>
+            </div>}
+          </section>}
         </Card>
         <Card className="flex flex-col justify-between p-6 sm:p-8">
           <div>
