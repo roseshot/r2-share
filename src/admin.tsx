@@ -427,7 +427,7 @@ export default function Admin() {
             <p className="mt-2 text-sm text-zinc-500">
               {search || storageFilter ? "Try another filename or storage filter." : "Choose a file above to create your first share link."}
             </p>
-          </Card>
+          </Card>}
           {files.map(record => <Card key={record.id} className="p-5 sm:p-6">
             <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
               <div className="min-w-0">
