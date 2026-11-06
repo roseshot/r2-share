@@ -199,9 +199,9 @@ export default function Admin() {
     <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,.16),transparent_70%)]" />
     <Card className="relative w-full max-w-md p-7 sm:p-10">
       <span className="mb-7 grid size-12 place-items-center rounded-2xl bg-emerald-400 text-zinc-950"><LockKeyhole size={22}/></span>
-      <p className="text-xs font-semibold uppercase tracking-[.22em] text-emerald-700 dark:text-emerald-300">Private workspace</p>
+      <p className="text-xs font-semibold uppercase tracking-[.22em] text-emerald-700 dark:text-emerald-300">File sharing</p>
       <h1 className="mt-3 text-3xl font-semibold tracking-tight">Admin sign in</h1>
-      <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">This page is for administrators only. Sign in to manage temporary files.</p>
+      <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">Sign in to manage files and share links.</p>
       <form className="mt-8 space-y-4" onSubmit={login}>
         <label htmlFor="admin-pass" className="block text-sm font-medium">Admin password</label>
         <Input id="admin-pass" type="password" autoComplete="current-password"
@@ -222,7 +222,7 @@ export default function Admin() {
           <img src="/tuckbox-mark.svg" width="44" height="44" className="size-11" alt="" aria-hidden="true" />
           <div>
             <p className="text-xl font-semibold tracking-tight">TuckBox <span className="ml-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">ADMIN</span></p>
-            <p className="mt-0.5 text-xs text-zinc-500">Private file workspace</p>
+            <p className="mt-0.5 text-xs text-zinc-500">File sharing dashboard</p>
           </div>
         </div>
         <div className="flex items-center gap-2"><ThemeSwitcher /><Button variant="ghost" onClick={logout}><LogOut size={16}/>Sign out</Button></div>
@@ -264,8 +264,8 @@ export default function Admin() {
                 disabled={uploading} options={durations.map(d => ({ value: String(d.seconds), label: d.label }))} />
             </div>
             <p className="text-xs leading-5 text-zinc-500">
-              Files are stored permanently by default. Share expiration only disables the public link.
-              You can change file expiration later in file settings.
+              Files remain stored by default. Share expiration disables only that link, not the file.
+              You can set a separate file expiration in File settings.
             </p>
             <div><label htmlFor="upload-access" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Download access</label>
               <Select id="upload-access" value={mode} onValueChange={value => setMode(value as Mode)}
@@ -293,11 +293,11 @@ export default function Admin() {
         </Card>
         <Card className="flex flex-col justify-between p-6 sm:p-8">
           <div>
-            <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300"><ShieldCheck size={21}/><span className="font-semibold">Private storage</span></div>
+            <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300"><ShieldCheck size={21}/><span className="font-semibold">File sharing</span></div>
             <h2 className="mt-5 text-3xl font-semibold tracking-tight">{files.length} <span className="text-lg font-normal text-zinc-500">files</span></h2>
             <p className="mt-3 text-sm leading-7 text-zinc-600 dark:text-zinc-400">
-              Your files are stored privately. Only administrators can upload, reveal access codes, change settings, or delete files.
-              The admin entry is not linked from public pages.
+              Manage file uploads, share links, and access settings in one place.
+              Only administrators can upload, reveal access codes, change settings, or delete files.
             </p>
           </div>
           <div className="mt-7 space-y-3 border-t border-zinc-200 dark:border-white/10 pt-6 text-sm text-zinc-600 dark:text-zinc-400">
@@ -311,7 +311,7 @@ export default function Admin() {
 
       <section className="mt-10">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="text-xl font-semibold">File management</h2><p className="mt-1 text-sm text-zinc-500">View, share, and manage temporary files</p></div>
+          <div><h2 className="text-xl font-semibold">File management</h2><p className="mt-1 text-sm text-zinc-500">View, share, and manage files</p></div>
           <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={loadingFiles}>
             {loadingFiles ? <LoaderCircle size={15} className="animate-spin"/> : <Clock3 size={15}/>}
             Refresh list

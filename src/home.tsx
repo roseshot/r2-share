@@ -29,10 +29,10 @@ export default function Home() {
 
       <section className="relative mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center pb-24 text-center">
         <h1 className="text-4xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-5xl">
-          Private file sharing
+          File sharing
         </h1>
         <p className="mt-4 text-sm leading-7 text-zinc-600 dark:text-zinc-400 sm:text-base">
-          Share files privately through a link.
+          Open a shared file using its link or file ID.
         </p>
 
         <form className="mt-10 w-full max-w-md" onSubmit={openShare}>
