@@ -47,10 +47,8 @@ function setup() {
   };
   const env = {
     DB: createTestDatabase(),
-    B2_REGION: "us-west-004",
-    B2_BUCKET: "test-private-bucket",
-    B2_KEY_ID: "test-key-id",
-    B2_APPLICATION_KEY: "test-application-key",
+    STORAGES: [{ id: "main-b2", backend: "b2", bucket: "test-private-bucket",
+      region: "us-west-004", keyId: "test-key-id", applicationKey: "test-application-key" }],
     ADMIN_PATH: "secret",
     ADMIN_PASSWORD: "password123",
     SESSION_SECRET: "s".repeat(48),
@@ -61,7 +59,7 @@ function setup() {
       fetch: async () => new Response("<!doctype html>", { headers: { "content-type": "text/html" } }),
     },
   } as unknown as Bindings;
-  bindObjectStore(env, bucket, "b2");
+  bindObjectStore(env, bucket, "main-b2");
   bindTestSettings(env);
 
   async function request(path: string, options: RequestInit = {}) {
@@ -78,7 +76,7 @@ function setup() {
   function record(fields: Partial<FileRecord> = {}): FileRecord {
     return {
       id,
-      backend: "b2",
+      storageId: "main-b2",
       filename: "private-document.txt",
       size: 6,
       mime: "text/plain",
@@ -314,7 +312,7 @@ describe("independent file and share expiration", () => {
     const app = setup();
     const cookie = await app.adminCookie();
     const body = {
-      filename: "test.txt", size: 6, mime: "text/plain", mode: "public", backend: "b2",
+      filename: "test.txt", size: 6, mime: "text/plain", mode: "public", storageId: "main-b2",
       shareExpiresIn: 3600,
     };
     const post = (originalModifiedAt: unknown) => app.request("/secret/api/uploads", {
@@ -339,7 +337,7 @@ describe("independent file and share expiration", () => {
       method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
-        filename: "test.txt", size: 6, mime: "text/plain", mode: "public", backend: "b2",
+        filename: "test.txt", size: 6, mime: "text/plain", mode: "public", storageId: "main-b2",
         shareExpiresIn: 3600, originalModifiedAt: "2024-04-22T09:12:30.000Z",
       }),
     });
@@ -416,7 +414,7 @@ describe("independent file and share expiration", () => {
     const app = setup();
     const cookie = await app.adminCookie();
     const body = {
-      filename: "test.txt", size: 6, mime: "text/plain", mode: "public", backend: "b2",
+      filename: "test.txt", size: 6, mime: "text/plain", mode: "public", storageId: "main-b2",
       shareExpiresIn: 3600,
     };
     const post = (value: unknown) => app.request("/secret/api/uploads", {
@@ -453,7 +451,7 @@ describe("independent file and share expiration", () => {
     const init = await app.request("/secret/api/uploads", {
       method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json", Cookie: cookie },
-      body: JSON.stringify({ filename: "secret.txt", size: 6, mode: "public", backend: "b2", shareExpiresIn: 3600 }),
+      body: JSON.stringify({ filename: "secret.txt", size: 6, mode: "public", storageId: "main-b2", shareExpiresIn: 3600 }),
     });
     const { id: uploadId, token } = await init.json() as { id: string; token: string };
     const send = () => app.request("/secret/api/uploads/" + uploadId, {

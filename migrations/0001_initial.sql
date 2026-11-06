@@ -11,7 +11,7 @@ CREATE INDEX IF NOT EXISTS idx_files_expires ON files (expires_at);
 
 CREATE TABLE IF NOT EXISTS upload_sessions (
   id TEXT PRIMARY KEY,
-  backend TEXT NOT NULL CHECK (backend IN ('b2', 'r2')),
+  storage_id TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('pending', 'uploading'))
 );

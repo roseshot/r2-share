@@ -3,12 +3,12 @@ import { monitorUpload } from "./integrity";
 import { previewFormat } from "../src/preview-types";
 import { getVirusTotalReport } from "./virustotal";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import type { Bindings, FileRecord, Mode, StorageBackend } from "./model";
-import { MAX_FILE_BYTES, EXPIRATIONS, validId, validBackend, dataKey, expired, shareExpired, shareExpiry, expirationDate, validChecksums, validStoredId } from "./model";
+import type { Bindings, FileRecord, Mode, StorageConfig } from "./model";
+import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareExpired, shareExpiry, expirationDate, validChecksums, validStoredId } from "./model";
 import { randomId, randomRevision, randomCode, signToken, readToken, equalText, encryptCode, decryptCode } from "./crypto";
-import { getRecord, saveRecord, deleteRecord, listRecords, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload } from "./storage";
-import { getObjectStore, isBackendConfigured } from "./object-store";
-import { resolveBindings, readAppSettings, saveAppSettings, validateSettings, type AppSettings } from "./app-config";
+import { getRecord, saveRecord, deleteRecord, listRecords, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload, storageInUse } from "./storage";
+import { getObjectStore, isStorageConfigured } from "./object-store";
+import { resolveBindings, readAppSettings, saveAppSettings, validateSettings, validateStorage, publicStorage, type AppSettings } from "./app-config";
 
 type Environment = { Bindings: Bindings };
 const app = new Hono<Environment>();
@@ -102,9 +102,8 @@ app.post("/api/files/:id/unlock", async c => {
 });
 
 async function streamFile(env: Bindings, record: FileRecord, preview = false): Promise<Response> {
-  const backend = record.backend;
-  if (!isBackendConfigured(env, backend)) return jsonError(backend.toUpperCase() + " storage is not configured", 503);
-  const object = await getObjectStore(env, backend).get(dataKey(record.id));
+  if (!isStorageConfigured(env, record.storageId)) return jsonError("Storage ID is not configured", 503);
+  const object = await getObjectStore(env, record.storageId).get(dataKey(record.id));
   if (!object) return jsonError("File not found", 404);
   const filename = encodeURIComponent(record.filename);
   const format = previewFormat(record.filename, record.mime);
@@ -197,7 +196,7 @@ app.post("/:entry/api/login", async c => {
   return c.json({ ok: true });
 });
 
-app.get("/:entry/api/session", c => c.json({ authenticated: true, storage: "b2+r2" }));
+app.get("/:entry/api/session", c => c.json({ authenticated: true, storage: "configured" }));
 
 app.post("/:entry/api/logout", c => {
   deleteCookie(c, cookieName, { path: "/" + c.req.param("entry") });
@@ -207,59 +206,86 @@ app.post("/:entry/api/logout", c => {
 app.get("/:entry/api/settings", async c => {
   const settings = await readAppSettings(c.env);
   return c.json({
-    configured: isBackendConfigured(c.env, "b2") || isBackendConfigured(c.env, "r2"),
-    b2Configured: isBackendConfigured(c.env, "b2"),
-    r2Configured: isBackendConfigured(c.env, "r2"),
-    b2Bucket: settings?.b2Bucket ?? "",
-    b2Region: settings?.b2Region ?? "",
-    b2KeyId: settings?.b2KeyId ?? "",
-    r2AccountId: settings?.r2AccountId ?? "",
-    r2Bucket: settings?.r2Bucket ?? "",
-    r2AccessKeyId: settings?.r2AccessKeyId ?? "",
+    storages: (settings?.storages ?? []).map(publicStorage),
     virusTotalEnabled: !!settings?.virusTotalApiKey,
   });
 });
 
 app.patch("/:entry/api/settings", async c => {
   const body = await readJson<Record<string, unknown>>(c.req.raw);
-  if (!body || typeof body !== "object" || Array.isArray(body)) return jsonError("Invalid settings request");
-  const permitted = ["b2Bucket", "b2Region", "b2KeyId", "b2ApplicationKey",
-    "r2AccountId", "r2Bucket", "r2AccessKeyId", "r2SecretAccessKey", "virusTotalApiKey"];
-  if (Object.keys(body).some(key => !permitted.includes(key)) ||
-      Object.values(body).some(value => typeof value !== "string")) return jsonError("Invalid settings parameters");
-  const current = await readAppSettings(c.env);
-  const updated: AppSettings = current ? { ...current } : {
-    b2Bucket: "", b2Region: "", b2KeyId: "", b2ApplicationKey: "",
-  };
-  for (const [key, value] of Object.entries(body)) {
-    if (typeof value !== "string") continue;
-    if (key === "b2Bucket") updated.b2Bucket = value;
-    else if (key === "b2Region") updated.b2Region = value;
-    else if (key === "b2KeyId") updated.b2KeyId = value;
-    else if (key === "b2ApplicationKey" && value) updated.b2ApplicationKey = value;
-    else if (key === "r2AccountId") updated.r2AccountId = value;
-    else if (key === "r2Bucket") updated.r2Bucket = value;
-    else if (key === "r2AccessKeyId") updated.r2AccessKeyId = value;
-    else if (key === "r2SecretAccessKey" && value) updated.r2SecretAccessKey = value;
-    else if (key === "virusTotalApiKey") updated.virusTotalApiKey = value || undefined;
-  }
-  try { validateSettings(updated); } catch { return jsonError("Invalid application configuration"); }
-  const storeEnv = Object.assign(Object.create(c.env) as Bindings, {
-    B2_BUCKET: updated.b2Bucket, B2_REGION: updated.b2Region,
-    B2_KEY_ID: updated.b2KeyId, B2_APPLICATION_KEY: updated.b2ApplicationKey,
-    R2_ACCOUNT_ID: updated.r2AccountId, R2_BUCKET: updated.r2Bucket,
-    R2_ACCESS_KEY_ID: updated.r2AccessKeyId, R2_SECRET_ACCESS_KEY: updated.r2SecretAccessKey,
-  });
-  for (const backend of ["b2", "r2"] as StorageBackend[]) {
-    const fields = backend === "b2"
-      ? ["b2Bucket", "b2Region", "b2KeyId", "b2ApplicationKey"]
-      : ["r2AccountId", "r2Bucket", "r2AccessKeyId", "r2SecretAccessKey"];
-    if (fields.some(key => key in body) && isBackendConfigured(storeEnv, backend)) {
-      try { await getObjectStore(storeEnv, backend).list({ prefix: "files/", limit: 1 }); }
-      catch { return jsonError("Unable to verify " + backend.toUpperCase() + " storage configuration", 503); }
-    }
-  }
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).some(key => key !== "virusTotalApiKey") ||
+      typeof body.virusTotalApiKey !== "string") return jsonError("Invalid settings request");
+  const current = await readAppSettings(c.env) ?? { storages: [] };
+  const updated: AppSettings = { ...current,
+    virusTotalApiKey: body.virusTotalApiKey || undefined };
+  try { validateSettings(updated); } catch { return jsonError("Invalid settings"); }
   await saveAppSettings(c.env, updated);
+  return c.json({ ok: true });
+});
+
+async function verifyStorage(env: Bindings, storage: StorageConfig): Promise<boolean> {
+  const candidate = Object.assign(Object.create(env) as Bindings, { STORAGES: [storage] });
+  try {
+    await getObjectStore(candidate, storage.id).list({ prefix: "files/", limit: 1 });
+    return true;
+  } catch { return false; }
+}
+
+app.post("/:entry/api/settings/storages", async c => {
+  const body = await readJson<StorageConfig>(c.req.raw);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return jsonError("Invalid storage configuration");
+  try { validateStorage(body); } catch { return jsonError("Invalid storage configuration"); }
+  const current = await readAppSettings(c.env) ?? { storages: [] };
+  if (current.storages.some(storage => storage.id === body.id)) return jsonError("Storage ID already exists", 409);
+  const updated: AppSettings = { ...current, storages: [...current.storages, body] };
+  try { validateSettings(updated); } catch { return jsonError("Invalid storage configuration"); }
+  if (!await verifyStorage(c.env, body)) return jsonError("Unable to verify storage access", 503);
+  await saveAppSettings(c.env, updated);
+  return c.json({ ok: true, storage: publicStorage(body) }, 201);
+});
+
+app.patch("/:entry/api/settings/storages/:storageId", async c => {
+  const id = c.req.param("storageId");
+  if (!validStorageId(id)) return jsonError("Invalid storage ID");
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return jsonError("Invalid storage configuration");
+  const current = await readAppSettings(c.env);
+  const existing = current?.storages.find(storage => storage.id === id);
+  if (!current || !existing) return jsonError("Storage ID not found", 404);
+  const allowed = existing.backend === "b2"
+    ? ["bucket", "region", "keyId", "applicationKey"]
+    : ["bucket", "accountId", "accessKeyId", "secretAccessKey"];
+  if (Object.keys(body).some(key => !allowed.includes(key)) ||
+      Object.values(body).some(value => typeof value !== "string")) {
+    return jsonError("Invalid storage configuration");
+  }
+  const updatedStorage = { ...existing, ...body } as StorageConfig;
+  try { validateStorage(updatedStorage); } catch { return jsonError("Invalid storage configuration"); }
+  const changedLocation = existing.bucket !== updatedStorage.bucket ||
+    (existing.backend === "b2" && updatedStorage.backend === "b2" &&
+      existing.region !== updatedStorage.region) ||
+    (existing.backend === "r2" && updatedStorage.backend === "r2" &&
+      existing.accountId !== updatedStorage.accountId);
+  if (changedLocation && await storageInUse(c.env, id)) {
+    return jsonError("Storage contains files or active uploads; location cannot be changed", 409);
+  }
+  if (!await verifyStorage(c.env, updatedStorage)) return jsonError("Unable to verify storage access", 503);
+  await saveAppSettings(c.env, { ...current, storages: current.storages.map(storage =>
+    storage.id === id ? updatedStorage : storage) });
+  return c.json({ ok: true, storage: publicStorage(updatedStorage) });
+});
+
+app.delete("/:entry/api/settings/storages/:storageId", async c => {
+  const id = c.req.param("storageId");
+  if (!validStorageId(id)) return jsonError("Invalid storage ID");
+  const current = await readAppSettings(c.env);
+  if (!current?.storages.some(storage => storage.id === id)) return jsonError("Storage ID not found", 404);
+  if (await storageInUse(c.env, id)) {
+    return jsonError("Storage contains files or active uploads; delete those first", 409);
+  }
+  await saveAppSettings(c.env, { ...current,
+    storages: current.storages.filter(storage => storage.id !== id) });
   return c.json({ ok: true });
 });
 
@@ -272,7 +298,7 @@ app.post("/:entry/api/uploads", async c => {
   const body = await readJson<{
     filename?: string; size?: number; mime?: string; shareExpiresIn?: number; fileExpiresIn?: unknown;
     originalModifiedAt?: unknown;
-    mode?: Mode; code?: string; backend?: StorageBackend;
+    mode?: Mode; code?: string; storageId?: string;
   }>(c.req.raw);
   if (!body || typeof body.filename !== "string" || body.filename.length < 1 ||
       body.filename.length > 240 || /[\x00-\x1f\x7f]/.test(body.filename) ||
@@ -286,13 +312,13 @@ app.post("/:entry/api/uploads", async c => {
       )) ||
       !EXPIRATIONS.some(x => x === body.shareExpiresIn) ||
       !["public", "protected"].includes(body.mode ?? "") ||
-      !validBackend(body.backend)) {
+      !validStorageId(body.storageId)) {
     return jsonError("Invalid file parameters");
   }
   const mode = body.mode as Mode;
-  const backend = body.backend!;
-  if (!isBackendConfigured(c.env, backend)) {
-    return jsonError(backend.toUpperCase() + " storage is not configured", 503);
+  const storageId = body.storageId!;
+  if (!isStorageConfigured(c.env, storageId)) {
+    return jsonError("Storage ID is not configured", 503);
   }
   if (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64)) {
     return jsonError("Access code is too long");
@@ -301,12 +327,12 @@ app.post("/:entry/api/uploads", async c => {
   if (code && code.length < 4) return jsonError("Access code must contain at least 4 characters");
   // Keep share links distinct from the private admin entry if it is 16 characters.
   let id = randomId();
-  while (id === c.env.ADMIN_PATH || !await reserveUpload(c.env, id, backend)) id = randomId();
+  while (id === c.env.ADMIN_PATH || !await reserveUpload(c.env, id, storageId)) id = randomId();
   const revision = randomRevision();
   const mime = typeof body.mime === "string" && /^[\w.+-]+\/[\w.+-]+$/.test(body.mime)
     ? body.mime : "application/octet-stream";
   const record: FileRecord = {
-    id, revision, backend, mode, mime, filename: body.filename, size: body.size!,
+    id, revision, storageId, mode, mime, filename: body.filename, size: body.size!,
     ...(typeof body.originalModifiedAt === "string" ? { originalModifiedAt: body.originalModifiedAt } : {}),
     createdAt: new Date().toISOString(),
     expiresAt: null,
@@ -327,15 +353,15 @@ app.put("/:entry/api/uploads/:id", async c => {
       !token.record || typeof token.record !== "object" ||
       (token.record as FileRecord).id !== id) return jsonError("Invalid upload authorization", 403);
   const record = token.record as FileRecord;
-  if (!validBackend(record.backend)) return jsonError("Invalid storage backend", 403);
-  if (!isBackendConfigured(c.env, record.backend)) {
-    return jsonError(record.backend.toUpperCase() + " storage is not configured", 503);
+  if (!validStorageId(record.storageId)) return jsonError("Invalid storage ID", 403);
+  if (!isStorageConfigured(c.env, record.storageId)) {
+    return jsonError("Storage ID is not configured", 503);
   }
   const lengthHeader = c.req.header("Content-Length");
   if (lengthHeader && Number(lengthHeader) !== record.size) return jsonError("File size mismatch");
   if (!c.req.raw.body) return jsonError("File is empty");
-  if (!await claimUpload(c.env, id)) return jsonError("Upload already started or expired", 409);
-  const store = getObjectStore(c.env, record.backend);
+  if (!await claimUpload(c.env, id, record.storageId)) return jsonError("Upload already started or expired", 409);
+  const store = getObjectStore(c.env, record.storageId);
   const integrity = monitorUpload(c.req.raw.body, record.size);
   try {
     const object = await store.put(dataKey(id), integrity.stream, record.mime, record.size);

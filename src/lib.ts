@@ -13,7 +13,7 @@ export type Share = {
   originalModifiedAt?: string;
 };
 export type ManagedFile = Share & {
-  backend: StorageBackend;
+  storageId: string;
   filename: string;
   size: number;
   mime: string;

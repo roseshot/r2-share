@@ -42,9 +42,11 @@ describe("repository conventions", () => {
       expect(content, path).not.toMatch(/R2 Share|Cloudflare|Backblaze/);
     }
     const admin = readFileSync(resolve(root, "src/admin.tsx"), "utf8");
+    const storage = readFileSync(resolve(root, "src/admin-settings.tsx"), "utf8");
     expect(admin).toContain("TuckBox");
-    expect(admin).toContain("Cloudflare R2");
-    expect(admin).toContain("Backblaze B2");
+    expect(admin).toContain("Storage ID");
+    expect(storage).toContain("Cloudflare R2");
+    expect(storage).toContain("Backblaze B2");
   });
 
   test("uses one TuckBox mark for all pages and the browser icon", () => {

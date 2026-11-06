@@ -79,7 +79,7 @@ describe("environment-injected D1 deployment", () => {
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS upload_sessions");
     expect(schema).not.toContain("storage_reset");
     expect(schema).not.toContain("import_progress");
-    expect(schema).toContain("backend TEXT NOT NULL");
+    expect(schema).toContain("storage_id TEXT NOT NULL");
     expect(schema).not.toMatch(/DELETE\s+FROM\s+app_settings/i);
   });
 

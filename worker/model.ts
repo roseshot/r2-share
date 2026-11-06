@@ -2,14 +2,7 @@ export interface Bindings {
   DB: D1Database;
   APP_MASTER_KEY: string;
   ADMIN_AUTH_REVISION?: string;
-  B2_REGION?: string;
-  B2_BUCKET?: string;
-  B2_KEY_ID?: string;
-  B2_APPLICATION_KEY?: string;
-  R2_ACCOUNT_ID?: string;
-  R2_BUCKET?: string;
-  R2_ACCESS_KEY_ID?: string;
-  R2_SECRET_ACCESS_KEY?: string;
+  STORAGES?: StorageConfig[];
   ASSETS: Fetcher;
   ADMIN_PATH: string;
   ADMIN_PASSWORD: string;
@@ -22,8 +15,11 @@ export interface Bindings {
 
 export type Mode = "public" | "protected";
 export type StorageBackend = "b2" | "r2";
-export const validBackend = (value: unknown): value is StorageBackend =>
-  value === "b2" || value === "r2";
+export type StorageConfig =
+  | { id: string; backend: "b2"; bucket: string; region: string; keyId: string; applicationKey: string }
+  | { id: string; backend: "r2"; bucket: string; accountId: string; accessKeyId: string; secretAccessKey: string };
+export const validStorageId = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-z][a-z0-9_-]{1,31}$/.test(value);
 export interface EncryptedCode { iv: string; data: string }
 export interface FileChecksums {
   sha256: string;
@@ -37,7 +33,7 @@ export const validChecksums = (value: unknown): value is FileChecksums => {
 };
 export interface FileRecord {
   id: string;
-  backend: StorageBackend;
+  storageId: string;
   filename: string;
   size: number;
   mime: string;

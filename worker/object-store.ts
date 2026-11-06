@@ -1,5 +1,5 @@
 import { AwsClient } from "aws4fetch";
-import type { Bindings, StorageBackend } from "./model";
+import { validStorageId, type Bindings, type StorageConfig } from "./model";
 
 export interface ObjectInfo {
   size: number;
@@ -169,50 +169,47 @@ function s3Store(options: {
   };
 }
 
-export function b2Store(env: Bindings): ObjectStore {
-  if (!isBackendConfigured(env, "b2")) throw new Error("Backblaze B2 configuration is incomplete");
-  const region = env.B2_REGION!, bucket = env.B2_BUCKET!;
-  return s3Store({
-    root: b2ObjectUrl(region, bucket),
-    urlFor: key => b2ObjectUrl(region, bucket, key),
-    region,
-    keyId: env.B2_KEY_ID!, secret: env.B2_APPLICATION_KEY!,
-    label: "Backblaze B2",
-  });
+export function getStorageConfig(env: Bindings, storageId: string): StorageConfig | null {
+  if (!validStorageId(storageId)) return null;
+  return env.STORAGES?.find(storage => storage.id === storageId) ?? null;
 }
 
-export function r2Store(env: Bindings): ObjectStore {
-  if (!isBackendConfigured(env, "r2")) throw new Error("Cloudflare R2 configuration is incomplete");
-  const accountId = env.R2_ACCOUNT_ID!, bucket = env.R2_BUCKET!;
+export function isStorageConfigured(env: Bindings, storageId: string): boolean {
+  return getStorageConfig(env, storageId) !== null;
+}
+
+function configuredStore(storage: StorageConfig): ObjectStore {
+  if (storage.backend === "b2") {
+    return s3Store({
+      root: b2ObjectUrl(storage.region, storage.bucket),
+      urlFor: key => b2ObjectUrl(storage.region, storage.bucket, key),
+      region: storage.region, keyId: storage.keyId, secret: storage.applicationKey,
+      label: "Backblaze B2",
+    });
+  }
   return s3Store({
-    root: r2ObjectUrl(accountId, bucket),
-    urlFor: key => r2ObjectUrl(accountId, bucket, key),
-    region: "auto",
-    keyId: env.R2_ACCESS_KEY_ID!, secret: env.R2_SECRET_ACCESS_KEY!,
+    root: r2ObjectUrl(storage.accountId, storage.bucket),
+    urlFor: key => r2ObjectUrl(storage.accountId, storage.bucket, key),
+    region: "auto", keyId: storage.accessKeyId, secret: storage.secretAccessKey,
     label: "Cloudflare R2",
   });
 }
 
-export function isBackendConfigured(env: Bindings, backend: StorageBackend): boolean {
-  return backend === "b2"
-    ? !!(env.B2_REGION && env.B2_BUCKET && env.B2_KEY_ID && env.B2_APPLICATION_KEY)
-    : !!(env.R2_ACCOUNT_ID && env.R2_BUCKET && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY);
-}
-
-/** Stores are associated with environments and backends for isolated integration tests. */
-const stores = new WeakMap<Bindings, Partial<Record<StorageBackend, ObjectStore>>>();
-export function bindObjectStore(env: Bindings, store: ObjectStore, backend: StorageBackend): void {
-  const configured = stores.get(env) ?? {};
-  configured[backend] = store;
+/** Test stores are isolated by environment and stable storage ID. */
+const stores = new WeakMap<Bindings, Map<string, ObjectStore>>();
+export function bindObjectStore(env: Bindings, store: ObjectStore, storageId: string): void {
+  const configured = stores.get(env) ?? new Map<string, ObjectStore>();
+  configured.set(storageId, store);
   stores.set(env, configured);
 }
 
-export function getObjectStore(env: Bindings, backend: StorageBackend): ObjectStore {
+export function getObjectStore(env: Bindings, storageId: string): ObjectStore {
+  if (!isStorageConfigured(env, storageId)) throw new Error("Storage ID is not configured");
   let candidate: object | null = env;
   while (candidate) {
-    const mock = stores.get(candidate as Bindings)?.[backend];
+    const mock = stores.get(candidate as Bindings)?.get(storageId);
     if (mock) return mock;
     candidate = Object.getPrototypeOf(candidate) as object | null;
   }
-  return backend === "r2" ? r2Store(env) : b2Store(env);
+  return configuredStore(getStorageConfig(env, storageId)!);
 }

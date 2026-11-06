@@ -5,7 +5,7 @@ import {
   ShieldAlert, ShieldCheck, Trash2, X
 } from "lucide-react";
 import { Badge, Button, Card, Input, Select, buttonStyles } from "./ui";
-import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile, type Mode, type StorageBackend } from "./lib";
+import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile, type Mode } from "./lib";
 import { originalModificationDate } from "./file-info";
 import { ThemeSwitcher } from "./theme";
 import AdminSettings from "./admin-settings";
@@ -53,8 +53,8 @@ export default function Admin() {
   const [selected, setSelected] = useState<File | null>(null);
   const [shareDuration, setShareDuration] = useState(86400);
   const [mode, setMode] = useState<Mode>("public");
-  const [storageBackend, setStorageBackend] = useState<StorageBackend>("b2");
-  const [availableBackends, setAvailableBackends] = useState<StorageBackend[]>([]);
+  const [storageId, setStorageId] = useState("");
+  const [storageIds, setStorageIds] = useState<string[]>([]);
   const [code, setCode] = useState("");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -71,18 +71,10 @@ export default function Admin() {
   async function refresh() {
     setLoadingFiles(true);
     try {
-      const settings = await requestJson<{ configured: boolean; b2Configured: boolean; r2Configured: boolean }>(api("/settings"));
-      const available: StorageBackend[] = [
-        ...(settings.b2Configured ? ["b2" as const] : []),
-        ...(settings.r2Configured ? ["r2" as const] : []),
-      ];
-      setAvailableBackends(available);
-      setStorageBackend(previous => available.includes(previous) ? previous : (available[0] ?? "b2"));
-      if (!settings.configured) {
-        setFiles([]);
-        setListTruncated(false);
-        return;
-      }
+      const settings = await requestJson<{ storages: { id: string }[] }>(api("/settings"));
+      const available = settings.storages.map(storage => storage.id);
+      setStorageIds(available);
+      setStorageId(previous => available.includes(previous) ? previous : (available[0] ?? ""));
       const response = await requestJson<{ files: ManagedFile[]; truncated: boolean }>(api("/files"));
       setFiles(response.files);
       setListTruncated(response.truncated);
@@ -117,7 +109,7 @@ export default function Admin() {
   async function upload(event: FormEvent) {
     event.preventDefault();
     if (!selected || uploading) return;
-    if (!availableBackends.includes(storageBackend)) {
+    if (!storageIds.includes(storageId)) {
       setError("Configure an object storage backend before uploading"); return;
     }
     if (selected.size > 90 * 1024 * 1024 || selected.size === 0) {
@@ -131,7 +123,7 @@ export default function Admin() {
           filename: selected.name, size: selected.size, mime: selected.type || "application/octet-stream",
           shareExpiresIn: shareDuration,
           originalModifiedAt: originalModificationDate(selected.lastModified),
-          mode, backend: storageBackend, code: mode === "protected" ? code : undefined
+          mode, storageId, code: mode === "protected" ? code : undefined
         }) }
       );
       await new Promise<void>((resolve, reject) => {
@@ -282,16 +274,14 @@ export default function Admin() {
             </label>
             <input id="upload-file" className="sr-only" type="file" onChange={(e: ChangeEvent<HTMLInputElement>) => setSelected(e.target.files?.[0] ?? null)} disabled={uploading}/>
             <div>
-              <label htmlFor="upload-backend" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Object storage backend</label>
-              {availableBackends.length ? (
-                <Select id="upload-backend" value={storageBackend} disabled={uploading}
-                  onValueChange={value => setStorageBackend(value as StorageBackend)}
-                  options={availableBackends.map(value => ({
-                    value, label: value === "r2" ? "Cloudflare R2" : "Backblaze B2",
-                  }))} />
+              <label htmlFor="upload-storage-id" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Storage ID</label>
+              {storageIds.length ? (
+                <Select id="upload-storage-id" value={storageId} disabled={uploading}
+                  onValueChange={setStorageId}
+                  options={storageIds.map(id => ({ value: id, label: id }))} />
               ) : (
                 <p className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-3 text-sm">
-                  Configure B2 or R2 in Object storage settings below before uploading.
+                  Add a storage ID in Object storage settings below before uploading.
                 </p>
               )}
             </div>
@@ -322,7 +312,7 @@ export default function Admin() {
                 <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: progress + "%" }}/>
               </div>
             </div>}
-            <Button className="w-full" type="submit" disabled={!selected || uploading || !availableBackends.includes(storageBackend)}>
+            <Button className="w-full" type="submit" disabled={!selected || uploading || !storageIds.includes(storageId)}>
               {uploading ? <LoaderCircle size={17} className="animate-spin"/> : <FileUp size={17}/>}
               {uploading ? "Uploading…" : "Upload and create share link"}
             </Button>
@@ -362,7 +352,7 @@ export default function Admin() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="break-all text-base font-medium">{record.filename}</span>
-                  <Badge variant="muted">{record.backend.toUpperCase()}</Badge>
+                  <Badge variant="muted">{record.storageId}</Badge>
                   <Badge variant={record.mode === "protected" ? "default" : "muted"}>
                     {record.mode === "protected" ? <><KeyRound size={12} className="mr-1"/>Access code</> : "Public"}
                   </Badge>

@@ -1,5 +1,5 @@
 import { b64, unb64 } from "./crypto";
-import type { Bindings } from "./model";
+import { validStorageId, type Bindings, type StorageConfig } from "./model";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -7,15 +7,41 @@ const salt = new Uint8Array(32);
 const context = "tuckbox/app-settings/v1";
 
 export interface AppSettings {
-  b2Bucket: string;
-  b2Region: string;
-  b2KeyId: string;
-  b2ApplicationKey: string;
-  r2AccountId?: string;
-  r2Bucket?: string;
-  r2AccessKeyId?: string;
-  r2SecretAccessKey?: string;
+  storages: StorageConfig[];
   virusTotalApiKey?: string;
+}
+
+export function validateStorage(storage: StorageConfig): void {
+  if (!storage || typeof storage !== "object" || !validStorageId(storage.id)) {
+    throw new Error("Invalid storage ID");
+  }
+  if (storage.backend !== "b2" && storage.backend !== "r2") throw new Error("Invalid storage provider");
+  if (typeof storage.bucket !== "string") throw new Error("Invalid bucket");
+  if (storage.backend === "b2") {
+    if (!/^[a-z]{2}-[a-z0-9-]+-[0-9]{3}$/.test(storage.region)) throw new Error("Invalid B2 region");
+    if (!/^[a-z0-9][a-z0-9.-]{4,61}[a-z0-9]$/.test(storage.bucket)) throw new Error("Invalid B2 bucket");
+    if (typeof storage.keyId !== "string" || storage.keyId.length < 4 || storage.keyId.length > 256 ||
+        typeof storage.applicationKey !== "string" || storage.applicationKey.length < 4 ||
+        storage.applicationKey.length > 256) throw new Error("Invalid B2 credentials");
+  } else {
+    if (typeof storage.accountId !== "string" ||
+        !/^[a-f0-9]{32}$/i.test(storage.accountId)) throw new Error("Invalid R2 account ID");
+    if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(storage.bucket)) throw new Error("Invalid R2 bucket");
+    if (typeof storage.accessKeyId !== "string" || storage.accessKeyId.length < 4 ||
+        storage.accessKeyId.length > 256 || typeof storage.secretAccessKey !== "string" ||
+        storage.secretAccessKey.length < 4 || storage.secretAccessKey.length > 256) {
+      throw new Error("Invalid R2 credentials");
+    }
+  }
+}
+
+export function publicStorage(storage: StorageConfig) {
+  if (storage.backend === "b2") {
+    return { id: storage.id, backend: storage.backend, bucket: storage.bucket,
+      region: storage.region, keyId: storage.keyId };
+  }
+  return { id: storage.id, backend: storage.backend, bucket: storage.bucket,
+    accountId: storage.accountId, accessKeyId: storage.accessKeyId };
 }
 
 function masterBytes(master: string): Uint8Array<ArrayBuffer> {
@@ -27,26 +53,14 @@ function masterBytes(master: string): Uint8Array<ArrayBuffer> {
 }
 
 export function validateSettings(settings: AppSettings): void {
-  const b2 = [settings.b2Region, settings.b2Bucket, settings.b2KeyId, settings.b2ApplicationKey];
-  if (b2.some(value => typeof value !== "string")) throw new Error("Invalid B2 configuration");
-  if (b2.some(Boolean)) {
-    if (!/^[a-z]{2}-[a-z0-9-]+-[0-9]{3}$/.test(settings.b2Region)) throw new Error("Invalid B2 region");
-    if (!/^[a-z0-9][a-z0-9.-]{4,61}[a-z0-9]$/.test(settings.b2Bucket)) throw new Error("Invalid B2 bucket");
-    if (settings.b2KeyId.length < 4 || settings.b2KeyId.length > 256 ||
-        settings.b2ApplicationKey.length < 4 || settings.b2ApplicationKey.length > 256) {
-      throw new Error("Invalid B2 credentials");
-    }
+  if (!Array.isArray(settings.storages) || settings.storages.length > 32) {
+    throw new Error("Invalid storage list");
   }
-  const r2 = [settings.r2AccountId ?? "", settings.r2Bucket ?? "",
-    settings.r2AccessKeyId ?? "", settings.r2SecretAccessKey ?? ""];
-  if (r2.some(value => typeof value !== "string")) throw new Error("Invalid R2 configuration");
-  if (r2.some(Boolean)) {
-    if (!/^[0-9a-f]{32}$/i.test(r2[0])) throw new Error("Invalid R2 account ID");
-    if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(r2[1])) throw new Error("Invalid R2 bucket");
-    if (r2[2].length < 4 || r2[2].length > 256 ||
-        r2[3].length < 4 || r2[3].length > 256) {
-      throw new Error("Invalid R2 credentials");
-    }
+  const ids = new Set<string>();
+  for (const storage of settings.storages) {
+    validateStorage(storage);
+    if (ids.has(storage.id)) throw new Error("Duplicate storage ID");
+    ids.add(storage.id);
   }
   if (settings.virusTotalApiKey !== undefined &&
       (typeof settings.virusTotalApiKey !== "string" || settings.virusTotalApiKey.length > 256)) {
@@ -99,14 +113,7 @@ async function decryptPayload(master: string, payload: string): Promise<Record<s
 
 function toSettings(raw: Record<string, unknown>): AppSettings {
   const settings: AppSettings = {
-    b2Bucket: (raw.b2Bucket ?? "") as string,
-    b2Region: (raw.b2Region ?? "") as string,
-    b2KeyId: (raw.b2KeyId ?? "") as string,
-    b2ApplicationKey: (raw.b2ApplicationKey ?? "") as string,
-    ...(raw.r2AccountId !== undefined ? { r2AccountId: raw.r2AccountId as string } : {}),
-    ...(raw.r2Bucket !== undefined ? { r2Bucket: raw.r2Bucket as string } : {}),
-    ...(raw.r2AccessKeyId !== undefined ? { r2AccessKeyId: raw.r2AccessKeyId as string } : {}),
-    ...(raw.r2SecretAccessKey !== undefined ? { r2SecretAccessKey: raw.r2SecretAccessKey as string } : {}),
+    storages: raw.storages as StorageConfig[],
     ...(raw.virusTotalApiKey ? { virusTotalApiKey: raw.virusTotalApiKey as string } : {}),
   };
   validateSettings(settings);
@@ -149,16 +156,7 @@ export async function resolveBindings(env: Bindings): Promise<Bindings> {
   return Object.assign(Object.create(env) as Bindings, {
     ...keys,
     ADMIN_AUTH_REVISION: b64(new Uint8Array(revision)),
-    ...(settings ? {
-      B2_REGION: settings.b2Region,
-      B2_BUCKET: settings.b2Bucket,
-      B2_KEY_ID: settings.b2KeyId,
-      B2_APPLICATION_KEY: settings.b2ApplicationKey,
-      R2_ACCOUNT_ID: settings.r2AccountId,
-      R2_BUCKET: settings.r2Bucket,
-      R2_ACCESS_KEY_ID: settings.r2AccessKeyId,
-      R2_SECRET_ACCESS_KEY: settings.r2SecretAccessKey,
-      VIRUSTOTAL_API_KEY: settings.virusTotalApiKey,
-    } : {}),
+    STORAGES: settings?.storages ?? [],
+    VIRUSTOTAL_API_KEY: settings?.virusTotalApiKey,
   });
 }

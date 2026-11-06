@@ -1,10 +1,10 @@
-import type { Bindings, FileRecord, StorageBackend } from "./model";
-import { dataKey, validBackend, validChecksums, validStoredId } from "./model";
-import { getObjectStore, isBackendConfigured } from "./object-store";
+import type { Bindings, FileRecord } from "./model";
+import { dataKey, validStorageId, validChecksums, validStoredId } from "./model";
+import { getObjectStore, isStorageConfigured } from "./object-store";
 
 interface FileRow { record_json: string }
 interface FileIdRow { id: string }
-interface UploadSessionRow { id: string; backend: StorageBackend }
+interface UploadSessionRow { id: string; storage_id: string }
 
 function parseRecord(value: unknown): FileRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -14,7 +14,7 @@ function parseRecord(value: unknown): FileRecord | null {
       typeof record.mime !== "string" || typeof record.createdAt !== "string" ||
       (record.mode !== "public" && record.mode !== "protected") ||
       typeof record.revision !== "string" ||
-      !validBackend(record.backend) ||
+      !validStorageId(record.storageId) ||
       (record.expiresAt !== null && typeof record.expiresAt !== "string") ||
       (record.shareExpiresAt !== null && typeof record.shareExpiresAt !== "string") ||
       (record.checksums !== undefined && !validChecksums(record.checksums))) return null;
@@ -43,22 +43,22 @@ export async function saveRecord(env: Bindings, record: FileRecord): Promise<voi
 export async function deleteRecord(env: Bindings, id: string): Promise<void> {
   const record = await getRecord(env, id);
   if (!record) return;
-  await getObjectStore(env, record.backend).delete(dataKey(id));
+  await getObjectStore(env, record.storageId).delete(dataKey(id));
   await env.DB.prepare("DELETE FROM files WHERE id = ?").bind(id).run();
 }
 
-export async function reserveUpload(env: Bindings, id: string, backend: StorageBackend): Promise<boolean> {
+export async function reserveUpload(env: Bindings, id: string, storageId: string): Promise<boolean> {
   const result = await env.DB.prepare(
-    "INSERT OR IGNORE INTO upload_sessions (id, backend, created_at, status) VALUES (?, ?, ?, 'pending')"
-  ).bind(id, backend, Date.now()).run();
+    "INSERT OR IGNORE INTO upload_sessions (id, storage_id, created_at, status) VALUES (?, ?, ?, 'pending')"
+  ).bind(id, storageId, Date.now()).run();
   return result.meta.changes === 1;
 }
 
-export async function claimUpload(env: Bindings, id: string): Promise<boolean> {
+export async function claimUpload(env: Bindings, id: string, storageId: string): Promise<boolean> {
   const result = await env.DB.prepare(
     "UPDATE upload_sessions SET status = 'uploading' " +
-    "WHERE id = ? AND status = 'pending' AND created_at > ?"
-  ).bind(id, Date.now() - 600000).run();
+    "WHERE id = ? AND storage_id = ? AND status = 'pending' AND created_at > ?"
+  ).bind(id, storageId, Date.now() - 600000).run();
   return result.meta.changes === 1;
 }
 
@@ -97,15 +97,27 @@ export async function cleanupExpired(env: Bindings): Promise<number> {
   }
 
   const abandoned = await env.DB.prepare(
-    "SELECT id, backend FROM upload_sessions WHERE created_at < ? ORDER BY created_at LIMIT 10"
+    "SELECT id, storage_id FROM upload_sessions WHERE created_at < ? ORDER BY created_at LIMIT 10"
   ).bind(Date.now() - 86400000).all<UploadSessionRow>();
-  for (const { id, backend } of abandoned.results) {
-    if (!validBackend(backend)) throw new Error("Invalid upload session backend");
-    if (!await getRecord(env, id) && isBackendConfigured(env, backend)) {
-      await getObjectStore(env, backend).delete(dataKey(id));
+  for (const { id, storage_id } of abandoned.results) {
+    if (!validStorageId(storage_id)) throw new Error("Invalid upload session storage ID");
+    if (!await getRecord(env, id) && isStorageConfigured(env, storage_id)) {
+      await getObjectStore(env, storage_id).delete(dataKey(id));
     }
     await abandonUpload(env, id);
   }
   return removed;
 }
 
+
+/** Prevent removal or endpoint reassignment while files or uploads still reference a storage ID. */
+export async function storageInUse(env: Bindings, storageId: string): Promise<boolean> {
+  const file = await env.DB.prepare(
+    "SELECT id FROM files WHERE json_extract(record_json, '$.storageId') = ? LIMIT 1"
+  ).bind(storageId).first<FileIdRow>();
+  if (file) return true;
+  const session = await env.DB.prepare(
+    "SELECT id FROM upload_sessions WHERE storage_id = ? LIMIT 1"
+  ).bind(storageId).first<FileIdRow>();
+  return session !== null;
+}
