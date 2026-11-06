@@ -34,6 +34,7 @@ export const validChecksums = (value: unknown): value is FileChecksums => {
 export interface ShareRecord {
   id: string;
   fileId: string;
+  label?: string;
   mode: Mode;
   revision: string;
   encryptedCode?: EncryptedCode;

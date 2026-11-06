@@ -6,7 +6,7 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 
 - Upload files of up to **90 MiB** through a private administrator dashboard.
 - Choose a named storage ID at upload time; configure up to **32** B2 or R2 storage instances.
-- Create multiple links for one file, each with its own public/protected access, optional access code, and expiration.
+- Create multiple links for one file, each with its own admin-only name, public/protected access, optional access code, and expiration.
 - Revoke or update one link without affecting other links or duplicating the stored object.
 - Keep file retention separate from link expiration; manage file deletion independently.
 - Download any supported file or preview images, PDFs, text, audio, and video in the browser. Archive files (ZIP, TAR, TGZ, etc.) are download-only; their contents are not parsed or previewed.
@@ -130,6 +130,8 @@ The admin dashboard uses **Sonner toasts** for successful uploads, saves, copies
 
 Deleting a file, revoking an individual share link, or removing a storage configuration requires an accessible **Base UI Alert Dialog** confirmation. Canceling does not send a delete request. An operation failure remains visible in the dialog, and the dialog stays open for retry.
 
+The file management screen provides server-side filename search, storage filtering, creation-time sorting, and 25-file pagination. Share links can be given optional admin-only names to distinguish their intended recipients.
+
 ## Database and migrations
 
 D1 holds four tables:
@@ -137,7 +139,7 @@ D1 holds four tables:
 | Table | Role |
 | --- | --- |
 | `files` | Object metadata, storage ID, creation time, and file expiration |
-| `shares` | Multiple independent links per file, including encrypted access codes and share expiration |
+| `shares` | Multiple independent links per file, including admin-only names, encrypted access codes and share expiration |
 | `upload_sessions` | In-progress upload reservations associated with a storage ID |
 | `app_settings` | Encrypted storage configurations and optional VirusTotal key |
 
@@ -147,6 +149,7 @@ Versioned migrations:
 | --- | --- |
 | `migrations/0001_initial.sql` | Initial `files`, `upload_sessions`, and `app_settings` schema |
 | `migrations/0002_file_shares.sql` | Adds `shares` and migrates existing single-link settings into the first share |
+| `migrations/0003_share_labels.sql` | Adds optional admin-only names without changing share URLs or access settings |
 
 The `0002` migration preserves existing links' **IDs/URLs, access codes, and expiry**. File metadata retains compatibility fields from the initial schema; the `shares` table is authoritative for link access.
 

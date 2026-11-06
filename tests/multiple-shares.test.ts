@@ -117,6 +117,48 @@ describe("independent multiple share links", () => {
     expect(await download.text()).toBe("sample");
   });
 
+  test("supports admin-only share names without invalidating access cookies", async () => {
+    const app = fixture();
+    await app.createFile("protected");
+    const created = await app.admin("/files/" + fileId + "/shares", "POST", {
+      mode: "protected", code: "label-code", shareExpiresIn: 0, label: "Client review",
+    });
+    expect(created.status).toBe(201);
+    const { share } = await created.json() as { share: { id: string; label: string } };
+    expect(share.label).toBe("Client review");
+    const before = await getShare(app.env, share.id);
+    const updated = await app.admin("/files/" + fileId + "/shares/" + share.id, "PATCH", {
+      label: "Updated recipient",
+    });
+    expect(updated.status).toBe(200);
+    expect((await getShare(app.env, share.id))?.label).toBe("Updated recipient");
+    expect((await getShare(app.env, share.id))?.revision).toBe(before?.revision);
+    expect((await app.admin("/files/" + fileId + "/shares/" + share.id, "PATCH", {
+      label: "x".repeat(65),
+    })).status).toBe(400);
+  });
+
+  test("searches and paginates files on the server", async () => {
+    const app = fixture();
+    const base = await app.createFile();
+    for (let n = 0; n < 26; n++) {
+      await saveRecord(app.env, {
+        ...base, id: String(n).padStart(16, "0"),
+        filename: "needle-" + n + ".txt",
+        createdAt: new Date(Date.now() - n * 1000).toISOString(),
+      });
+    }
+    const first = await app.admin("/files?q=needle&storageId=primary-b2&page=1&sort=newest");
+    expect(first.status).toBe(200);
+    const result = await first.json() as { files: FileRecord[]; total: number; hasMore: boolean };
+    expect(result.total).toBe(26);
+    expect(result.files).toHaveLength(25);
+    expect(result.hasMore).toBe(true);
+    const second = await app.admin("/files?q=needle&page=2");
+    expect((await second.json() as { files: FileRecord[] }).files).toHaveLength(1);
+    expect((await app.admin("/files?page=0")).status).toBe(400);
+  });
+
   test("invalidates only the edited share authorization, not sibling links", async () => {
     const app = fixture();
     await app.createFile("protected");

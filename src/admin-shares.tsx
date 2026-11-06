@@ -15,6 +15,7 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
   const [mode, setMode] = useState<Mode>("public");
   const [duration, setDuration] = useState(86400);
   const [code, setCode] = useState("");
+  const [label, setLabel] = useState("");
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -25,7 +26,7 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
   const url = (id: string) => location.origin + "/" + id;
 
   function reset() {
-    setCreating(false); setEditing(null); setMode("public"); setCode(""); setDuration(86400);
+    setCreating(false); setEditing(null); setMode("public"); setCode(""); setLabel(""); setDuration(86400);
   }
 
   async function submit(event: FormEvent) {
@@ -38,7 +39,7 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
         endpoint(editing ?? undefined), {
           method: changing ? "PATCH" : "POST",
           ...jsonBody({
-            mode, code: mode === "protected" && code.trim() ? code.trim() : undefined,
+            label: label.trim(), mode, code: mode === "protected" && code.trim() ? code.trim() : undefined,
             shareExpiresIn: duration >= 0 ? duration : undefined,
           }),
         }
@@ -84,6 +85,7 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
     setCreating(false);
     setEditing(share.id);
     setMode(share.mode);
+    setLabel(share.label ?? "");
     setCode("");
     setDuration(-1);
     setError("");
@@ -104,11 +106,13 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
         className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-white/10 dark:bg-zinc-950/40">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <code className="break-all text-xs">{share.id}</code>
+            <p className="break-all text-sm font-medium">{share.label || "Unnamed link"}</p>
+            <code className="break-all text-xs text-zinc-500">{share.id}</code>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               <Badge variant={share.mode === "protected" ? "default" : "muted"}>
                 {share.mode === "protected" ? "Access code" : "Public"}
               </Badge>
+              <span>{share.shareExpiresAt && Date.parse(share.shareExpiresAt) <= Date.now() ? "Expired" : "Active"}</span>
               <span>Expires: {timeText(share.shareExpiresAt)}</span>
             </div>
           </div>
@@ -130,6 +134,11 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
     </div>
     {isFormOpen && <form onSubmit={submit} className="mt-4 space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
       <h4 className="text-sm font-semibold">{editing ? "Edit share link" : "New share link"}</h4>
+      <label className="block text-xs">
+        Link name (optional, admin-only)
+        <Input className="mt-1" maxLength={64} value={label} onChange={event => setLabel(event.target.value)}
+          placeholder="e.g. Client review" />
+      </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <div><label className="mb-1 block text-xs" htmlFor={"share-mode-" + fileId}>Access</label>
           <Select id={"share-mode-" + fileId} value={mode}

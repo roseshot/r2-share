@@ -6,9 +6,9 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Bindings, FileRecord, ShareRecord, Mode, StorageConfig } from "./model";
 import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareLinkExpired, expirationDate, validChecksums, validStoredId } from "./model";
 import { randomId, randomRevision, randomCode, signToken, readToken, equalText, encryptCode, decryptCode } from "./crypto";
-import { getRecord, saveRecord, deleteRecord, listRecords, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload, storageInUse } from "./storage";
+import { getRecord, saveRecord, deleteRecord, listFilePage, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload, storageInUse } from "./storage";
 import { getObjectStore, isStorageConfigured } from "./object-store";
-import { getShare, listShares, listSharesForFiles, createShare, updateShare, deleteShare } from "./shares";
+import { getShare, listShares, listSharesForFileIds, createShare, updateShare, deleteShare } from "./shares";
 import { resolveBindings, readAppSettings, saveAppSettings, validateSettings, validateStorage, publicStorage, type AppSettings } from "./app-config";
 
 type Environment = { Bindings: Bindings };
@@ -26,7 +26,7 @@ const validEntry = (entry: string | undefined, env: Bindings): boolean =>
   !!entry && /^[a-zA-Z0-9_-]+$/.test(env.ADMIN_PATH ?? "") && entry === env.ADMIN_PATH;
 const age = (seconds: number) => Date.now() + seconds * 1000;
 const shareView = (share: ShareRecord) => ({
-  id: share.id, mode: share.mode, createdAt: share.createdAt,
+  id: share.id, label: share.label ?? "", mode: share.mode, createdAt: share.createdAt,
   shareExpiresAt: share.expiresAt,
 });
 const serialize = (record: FileRecord, shares: ShareRecord[] = []) => {
@@ -292,10 +292,20 @@ app.delete("/:entry/api/settings/storages/:storageId", async c => {
 });
 
 app.get("/:entry/api/files", async c => {
-  const { records, truncated } = await listRecords(c.env);
-  const shares = await listSharesForFiles(c.env);
-  return c.json({ files: records.filter(r => !expired(r)).map(record =>
-    serialize(record, shares.filter(share => share.fileId === record.id))), truncated });
+  const rawPage = c.req.query("page") ?? "1";
+  const query = c.req.query("q") ?? "";
+  const storageId = c.req.query("storageId") ?? "";
+  const sort = c.req.query("sort") ?? "newest";
+  if (!/^[1-9][0-9]{0,5}$/.test(rawPage) || query.length > 100 ||
+      (storageId !== "" && !validStorageId(storageId)) ||
+      (sort !== "newest" && sort !== "oldest")) return jsonError("Invalid file search");
+  const { records, total, page, pageSize, hasMore } = await listFilePage(c.env, {
+    page: Number(rawPage), query, storageId, sort,
+  });
+  const shares = await listSharesForFileIds(c.env, records.map(record => record.id));
+  return c.json({ files: records.map(record =>
+    serialize(record, shares.filter(share => share.fileId === record.id))),
+    total, page, pageSize, hasMore, truncated: hasMore });
 });
 
 app.post("/:entry/api/uploads", async c => {
@@ -400,12 +410,17 @@ app.get("/:entry/api/files/:id/virustotal", async c => {
   return c.json(await getVirusTotalReport(record.checksums.sha256, c.env.VIRUSTOTAL_API_KEY));
 });
 
+function validShareLabel(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 64 && !/[\x00-\x1f\x7f]/.test(value);
+}
+
 function validShareChanges(body: Record<string, unknown> | null): body is Record<string, unknown> {
   return !!body && typeof body === "object" && !Array.isArray(body) &&
     Object.keys(body).length > 0 &&
-    Object.keys(body).every(key => ["mode", "code", "shareExpiresIn"].includes(key)) &&
+    Object.keys(body).every(key => ["mode", "code", "shareExpiresIn", "label"].includes(key)) &&
     (body.mode === undefined || body.mode === "public" || body.mode === "protected") &&
     (body.code === undefined || (typeof body.code === "string" && body.code.length <= 64)) &&
+    (body.label === undefined || validShareLabel(body.label)) &&
     (body.shareExpiresIn === undefined || EXPIRATIONS.some(x => x === body.shareExpiresIn));
 }
 
@@ -419,9 +434,9 @@ async function changeShare(env: Bindings, current: ShareRecord, body: Record<str
         ? await decryptCode(current, env.CODE_ENCRYPTION_KEY) : randomCode());
     if (code.length < 4) throw new Error("Invalid access code");
   }
-  const revision = randomRevision();
+  const revision = Object.keys(body).every(key => key === "label") ? current.revision : randomRevision();
   const share: ShareRecord = {
-    ...current, mode, revision,
+    ...current, mode, revision, label: (body.label as string | undefined)?.trim() ?? current.label ?? "",
     expiresAt: body.shareExpiresIn === undefined ? current.expiresAt :
       expirationDate(body.shareExpiresIn as number),
     encryptedCode: code ? await encryptCode(code, current.id, revision, env.CODE_ENCRYPTION_KEY) : undefined,
@@ -476,10 +491,11 @@ app.post("/:entry/api/files/:id/shares", async c => {
   const fileId = c.req.param("id");
   const record = await getRecord(c.env, fileId);
   if (!record || expired(record)) return jsonError("File not found or expired", 404);
-  const body = await readJson<{ mode?: Mode; code?: string; shareExpiresIn?: number }>(c.req.raw);
+  const body = await readJson<{ mode?: Mode; code?: string; shareExpiresIn?: number; label?: string }>(c.req.raw);
   if (!body || (body.mode !== "public" && body.mode !== "protected") ||
       !EXPIRATIONS.some(x => x === body.shareExpiresIn) ||
-      (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64))) {
+      (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64)) ||
+       (body.label !== undefined && !validShareLabel(body.label))) {
     return jsonError("Invalid share parameters");
   }
   const code = body.mode === "protected" ? body.code?.trim() || randomCode() : null;
@@ -488,7 +504,7 @@ app.post("/:entry/api/files/:id/shares", async c => {
   while (id === c.env.ADMIN_PATH || await getShare(c.env, id) || await getRecord(c.env, id)) id = randomId();
   const revision = randomRevision();
   const share: ShareRecord = {
-    id, fileId, mode: body.mode, revision, createdAt: new Date().toISOString(),
+    id, fileId, label: body.label?.trim() ?? "", mode: body.mode, revision, createdAt: new Date().toISOString(),
     expiresAt: expirationDate(body.shareExpiresIn!),
     encryptedCode: code ? await encryptCode(code, id, revision, c.env.CODE_ENCRYPTION_KEY) : undefined,
   };

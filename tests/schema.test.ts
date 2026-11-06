@@ -8,7 +8,7 @@ const shares = readFileSync(new URL("../migrations/0002_file_shares.sql", import
 describe("D1 SQLite migrations", () => {
   test("keeps the initial schema and adds a separate additive migration", () => {
     expect(readdirSync(new URL("../migrations/", import.meta.url)).filter(name => name.endsWith(".sql")))
-      .toEqual(["0001_initial.sql", "0002_file_shares.sql"]);
+      .toEqual(["0001_initial.sql", "0002_file_shares.sql", "0003_share_labels.sql"]);
     expect(initial).not.toContain("CREATE TABLE IF NOT EXISTS shares");
     expect(shares).toContain("CREATE TABLE IF NOT EXISTS shares");
     expect(shares).not.toMatch(/DROP\s+TABLE|DELETE\s+FROM/i);
@@ -37,6 +37,21 @@ describe("D1 SQLite migrations", () => {
       });
       db.exec(shares);
       expect(db.query("SELECT COUNT(*) AS n FROM shares").get()).toEqual({ n: 1 });
+    } finally { db.close(); }
+  });
+
+  test("adds optional share labels without changing legacy access settings", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec(initial);
+      db.exec(shares);
+      db.query("INSERT INTO files (id, record_json, created_at, expires_at) VALUES (?, ?, ?, ?)")
+        .run("someFile12345678", "{}", "2026-11-01", null);
+      db.query("INSERT INTO shares (id, file_id, mode, revision, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run("shareOne12345678", "someFile12345678", "public", "first", null, "2026-11-01");
+      db.exec(readFileSync(new URL("../migrations/0003_share_labels.sql", import.meta.url), "utf8"));
+      expect(db.query("SELECT id, label, revision FROM shares").get())
+        .toEqual({ id: "shareOne12345678", label: "", revision: "first" });
     } finally { db.close(); }
   });
 

@@ -48,7 +48,13 @@ export default function Admin() {
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState("");
   const [files, setFiles] = useState<ManagedFile[]>([]);
-  const [listTruncated, setListTruncated] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [storageFilter, setStorageFilter] = useState("");
+  const [sort, setSort] = useState("newest");
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [selected, setSelected] = useState<File | null>(null);
   const [shareDuration, setShareDuration] = useState(86400);
@@ -79,18 +85,34 @@ export default function Admin() {
       const available = settings.storages.map(storage => storage.id);
       setStorageIds(available);
       setStorageId(previous => available.includes(previous) ? previous : (available[0] ?? ""));
-      const response = await requestJson<{ files: ManagedFile[]; truncated: boolean }>(api("/files"));
+      const params = new URLSearchParams({ page: String(page), q: search, sort });
+      if (storageFilter) params.set("storageId", storageFilter);
+      const response = await requestJson<{ files: ManagedFile[]; total: number; hasMore: boolean }>(
+        api("/files") + "?" + params.toString());
       setFiles(response.files);
-      setListTruncated(response.truncated);
+      setTotalFiles(response.total);
+      setHasMore(response.hasMore);
+      if (page > 1 && response.files.length === 0 && response.total > 0) {
+        setPage(Math.max(1, Math.ceil(response.total / 25)));
+      }
     } catch (e) { setError((e as Error).message); }
     finally { setLoadingFiles(false); }
   }
 
   useEffect(() => {
     requestJson(api("/session"))
-      .then(() => { setAuth("admin"); void refresh(); })
+      .then(() => setAuth("admin"))
       .catch(() => setAuth("guest"));
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setPage(1); setSearch(searchInput.trim()); }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (auth === "admin") void refresh();
+  }, [auth, page, search, storageFilter, sort]);
 
 
   async function login(event: FormEvent) {
@@ -99,7 +121,6 @@ export default function Admin() {
     try {
       await requestJson(api("/login"), { method: "POST", ...jsonBody({ password }) });
       setPassword(""); setAuth("admin");
-      await refresh();
     } catch (e) { setError((e as Error).message); }
     finally { setSigningIn(false); }
   }
@@ -355,14 +376,14 @@ export default function Admin() {
         <Card className="flex flex-col justify-between p-6 sm:p-8">
           <div>
             <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300"><ShieldCheck size={21}/><span className="font-semibold">File sharing</span></div>
-            <h2 className="mt-5 text-3xl font-semibold tracking-tight">{files.length} <span className="text-lg font-normal text-zinc-500">files</span></h2>
+            <h2 className="mt-5 text-3xl font-semibold tracking-tight">{totalFiles} <span className="text-lg font-normal text-zinc-500">files</span></h2>
             <p className="mt-3 text-sm leading-7 text-zinc-600 dark:text-zinc-400">
               Manage file uploads, share links, and access settings in one place.
               Only administrators can upload, reveal access codes, change settings, or delete files.
             </p>
           </div>
           <div className="mt-7 space-y-3 border-t border-zinc-200 dark:border-white/10 pt-6 text-sm text-zinc-600 dark:text-zinc-400">
-            <div className="flex items-center justify-between"><span>Storage used (listed files)</span>
+            <div className="flex items-center justify-between"><span>Storage used (current page)</span>
               <span className="font-medium text-zinc-900 dark:text-zinc-100">{sizeText(files.reduce((sum, f) => sum + f.size, 0))}</span></div>
             <div className="flex items-center justify-between"><span>File cleanup</span><Badge>Every 6 hours</Badge></div>
             <div className="flex items-center justify-between"><span>Share links</span><Badge variant="muted">Configurable expiry</Badge></div>
@@ -379,8 +400,34 @@ export default function Admin() {
           </Button>
         </div>
         <div className="space-y-4">
-          {listTruncated && <p role="status" className="text-sm text-amber-700 dark:text-amber-300">Only the first 500 files are listed.</p>}
-          {!loadingFiles && !files.length && <Card className="px-6 py-14 text-center"><h3 className="text-lg font-semibold">No files yet</h3><p className="mt-2 text-sm text-zinc-500">Choose a file above to create your first share link.</p></Card>}
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(160px,auto)_minmax(160px,auto)]">
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-zinc-500">Search filename</span>
+              <Input value={searchInput} onChange={event => setSearchInput(event.target.value)}
+                placeholder="Find a file…" maxLength={100} />
+            </label>
+            <div>
+              <label htmlFor="files-storage-filter" className="mb-1 block text-xs text-zinc-500">Storage</label>
+              <Select id="files-storage-filter" value={storageFilter}
+                onValueChange={value => { setPage(1); setStorageFilter(value); }}
+                options={[{ value: "", label: "All storages" }, ...storageIds.map(id => ({ value: id, label: id }))]} />
+            </div>
+            <div>
+              <label htmlFor="files-sort" className="mb-1 block text-xs text-zinc-500">Order</label>
+              <Select id="files-sort" value={sort}
+                onValueChange={value => { setPage(1); setSort(value); }}
+                options={[{ value: "newest", label: "Newest first" }, { value: "oldest", label: "Oldest first" }]} />
+            </div>
+          </div>
+          <p role="status" className="text-xs text-zinc-500">
+            {totalFiles} matching {totalFiles === 1 ? "file" : "files"} · Page {page}
+          </p>
+          {!loadingFiles && !files.length && <Card className="px-6 py-14 text-center">
+            <h3 className="text-lg font-semibold">{search || storageFilter ? "No matching files" : "No files yet"}</h3>
+            <p className="mt-2 text-sm text-zinc-500">
+              {search || storageFilter ? "Try another filename or storage filter." : "Choose a file above to create your first share link."}
+            </p>
+          </Card>
           {files.map(record => <Card key={record.id} className="p-5 sm:p-6">
             <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
               <div className="min-w-0">
@@ -434,6 +481,13 @@ export default function Admin() {
               </div>
             </form>}
           </Card>)}
+          <nav aria-label="File pages" className="flex items-center justify-between gap-3 pt-3">
+            <Button size="sm" variant="secondary" disabled={page <= 1 || loadingFiles}
+              onClick={() => setPage(value => Math.max(1, value - 1))}>Previous</Button>
+            <span className="text-xs text-zinc-500">Page {page} / {Math.max(1, Math.ceil(totalFiles / 25))}</span>
+            <Button size="sm" variant="secondary" disabled={!hasMore || loadingFiles}
+              onClick={() => setPage(value => value + 1)}>Next</Button>
+          </nav>
         </div>
       </section>
       <AdminSettings api={api} onSaved={() => void refresh()} />

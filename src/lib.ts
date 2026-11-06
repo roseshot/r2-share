@@ -14,6 +14,7 @@ export type Share = {
 };
 export type ManagedShare = {
   id: string;
+  label: string;
   mode: Mode;
   createdAt: string;
   shareExpiresAt: string | null;

@@ -126,3 +126,40 @@ export async function storageInUse(env: Bindings, storageId: string): Promise<bo
   ).bind(storageId).first<FileIdRow>();
   return session !== null;
 }
+
+export interface FilePageOptions {
+  page: number;
+  query?: string;
+  storageId?: string;
+  sort?: "newest" | "oldest";
+}
+
+export async function listFilePage(env: Bindings, { page, query = "", storageId = "", sort = "newest" }: FilePageOptions) {
+  const pageSize = 25;
+  if (!Number.isSafeInteger(page) || page < 1 || page > 100000 ||
+      query.length > 100 || (storageId !== "" && !validStorageId(storageId)) ||
+      !["newest", "oldest"].includes(sort)) throw new Error("Invalid file search");
+  const where = ["(expires_at IS NULL OR expires_at > ?)"];
+  const values: unknown[] = [new Date().toISOString()];
+  if (query) {
+    const escaped = query.replace(/[\\%_]/g, character => "\\" + character);
+    where.push("LOWER(json_extract(record_json, '$.filename')) LIKE LOWER(?) ESCAPE '\\'");
+    values.push("%" + escaped + "%");
+  }
+  if (storageId) {
+    where.push("json_extract(record_json, '$.storageId') = ?");
+    values.push(storageId);
+  }
+  const clause = where.join(" AND ");
+  const count = await env.DB.prepare("SELECT COUNT(*) AS total FROM files WHERE " + clause)
+    .bind(...values).first<{ total: number }>();
+  const total = count?.total ?? 0;
+  const direction = sort === "oldest" ? "ASC" : "DESC";
+  const rows = await env.DB.prepare(
+    "SELECT record_json FROM files WHERE " + clause +
+    " ORDER BY created_at " + direction + ", id " + direction + " LIMIT ? OFFSET ?"
+  ).bind(...values, pageSize, (page - 1) * pageSize).all<FileRow>();
+  const records = rows.results.map(row => parseRecord(JSON.parse(row.record_json)))
+    .filter((record): record is FileRecord => record !== null);
+  return { records, total, page, pageSize, hasMore: page * pageSize < total };
+}

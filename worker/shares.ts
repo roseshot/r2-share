@@ -3,6 +3,7 @@ import { validId } from "./model";
 
 interface ShareRow {
   id: string; file_id: string; mode: "public" | "protected"; revision: string;
+  label: string;
   encrypted_code_json: string | null; expires_at: string | null; created_at: string;
 }
 
@@ -13,7 +14,7 @@ function parseShare(row: ShareRow): ShareRecord {
   const encryptedCode = row.encrypted_code_json
     ? JSON.parse(row.encrypted_code_json) as EncryptedCode : undefined;
   return {
-    id: row.id, fileId: row.file_id, mode: row.mode, revision: row.revision,
+    id: row.id, fileId: row.file_id, label: row.label, mode: row.mode, revision: row.revision,
     encryptedCode, expiresAt: row.expires_at, createdAt: row.created_at,
   };
 }
@@ -21,16 +22,16 @@ function parseShare(row: ShareRow): ShareRecord {
 function insertShareStatement(env: Bindings, share: ShareRecord) {
   if (!validId(share.id) || !validId(share.fileId)) throw new Error("Invalid share ID");
   return env.DB.prepare(
-    "INSERT INTO shares (id, file_id, mode, revision, encrypted_code_json, expires_at, created_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?)"
-  ).bind(share.id, share.fileId, share.mode, share.revision,
+    "INSERT INTO shares (id, file_id, label, mode, revision, encrypted_code_json, expires_at, created_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(share.id, share.fileId, share.label ?? "", share.mode, share.revision,
     share.encryptedCode ? JSON.stringify(share.encryptedCode) : null,
     share.expiresAt, share.createdAt);
 }
 
 export function initialShare(record: FileRecord): ShareRecord {
   return {
-    id: record.id, fileId: record.id, mode: record.mode,
+    id: record.id, fileId: record.id, label: "", mode: record.mode,
     revision: record.revision, encryptedCode: record.encryptedCode,
     expiresAt: record.shareExpiresAt, createdAt: record.createdAt,
   };
@@ -39,7 +40,7 @@ export function initialShare(record: FileRecord): ShareRecord {
 export async function getShare(env: Bindings, id: string): Promise<ShareRecord | null> {
   if (!validId(id)) return null;
   const row = await env.DB.prepare(
-    "SELECT id, file_id, mode, revision, encrypted_code_json, expires_at, created_at " +
+    "SELECT id, file_id, label, mode, revision, encrypted_code_json, expires_at, created_at " +
     "FROM shares WHERE id = ?"
   ).bind(id).first<ShareRow>();
   return row ? parseShare(row) : null;
@@ -47,7 +48,7 @@ export async function getShare(env: Bindings, id: string): Promise<ShareRecord |
 
 export async function listShares(env: Bindings, fileId: string): Promise<ShareRecord[]> {
   const result = await env.DB.prepare(
-    "SELECT id, file_id, mode, revision, encrypted_code_json, expires_at, created_at " +
+    "SELECT id, file_id, label, mode, revision, encrypted_code_json, expires_at, created_at " +
     "FROM shares WHERE file_id = ? ORDER BY created_at DESC, id DESC"
   ).bind(fileId).all<ShareRow>();
   return result.results.map(parseShare);
@@ -55,7 +56,7 @@ export async function listShares(env: Bindings, fileId: string): Promise<ShareRe
 
 export async function listSharesForFiles(env: Bindings, maximum = 500): Promise<ShareRecord[]> {
   const result = await env.DB.prepare(
-    "SELECT id, file_id, mode, revision, encrypted_code_json, expires_at, created_at FROM shares " +
+    "SELECT id, file_id, label, mode, revision, encrypted_code_json, expires_at, created_at FROM shares " +
     "WHERE file_id IN (SELECT id FROM files ORDER BY created_at DESC, id DESC LIMIT ?) " +
     "ORDER BY created_at DESC, id DESC"
   ).bind(maximum).all<ShareRow>();
@@ -68,9 +69,9 @@ export async function createShare(env: Bindings, share: ShareRecord): Promise<vo
 
 export async function updateShare(env: Bindings, share: ShareRecord): Promise<void> {
   await env.DB.prepare(
-    "UPDATE shares SET mode = ?, revision = ?, encrypted_code_json = ?, expires_at = ? " +
+    "UPDATE shares SET label = ?, mode = ?, revision = ?, encrypted_code_json = ?, expires_at = ? " +
     "WHERE id = ? AND file_id = ?"
-  ).bind(share.mode, share.revision,
+  ).bind(share.label ?? "", share.mode, share.revision,
     share.encryptedCode ? JSON.stringify(share.encryptedCode) : null,
     share.expiresAt, share.id, share.fileId).run();
 }
@@ -83,4 +84,16 @@ export async function deleteShare(env: Bindings, fileId: string, shareId: string
 /** Save a completed upload and its first link atomically. */
 export function createInitialShareStatement(env: Bindings, record: FileRecord) {
   return insertShareStatement(env, initialShare(record));
+}
+
+/** Fetch only the links associated with the current (possibly filtered) file page. */
+export async function listSharesForFileIds(env: Bindings, fileIds: string[]): Promise<ShareRecord[]> {
+  if (fileIds.length === 0) return [];
+  if (fileIds.length > 50 || fileIds.some(id => !validId(id))) throw new Error("Invalid file IDs");
+  const placeholders = fileIds.map(() => "?").join(", ");
+  const result = await env.DB.prepare(
+    "SELECT id, file_id, label, mode, revision, encrypted_code_json, expires_at, created_at " +
+    "FROM shares WHERE file_id IN (" + placeholders + ") ORDER BY created_at DESC, id DESC"
+  ).bind(...fileIds).all<ShareRow>();
+  return result.results.map(parseShare);
 }
