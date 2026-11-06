@@ -1,123 +1,241 @@
 # TuckBox
 
-Private file sharing on Cloudflare Workers, D1, Backblaze B2, and Cloudflare R2.
+Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Backblaze B2**, and **Cloudflare R2**. Store each file once, then issue multiple independent sharing links.
 
-## Architecture
+## Features
 
-- A Cloudflare Worker authorizes uploads, downloads, previews, file management, and access-code-protected shares.
-- Backblaze B2 and Cloudflare R2 store private file objects under the `files/` prefix.
-- D1 stores file metadata, a required storage ID for each file and upload session, and encrypted per-ID storage configurations.
-- The Worker calculates SHA-256 as upload streams pass through it.
-- Expiring share links are independent of file retention. File expiration triggers object deletion.
+- Upload files of up to **90 MiB** through a private administrator dashboard.
+- Choose a named storage ID at upload time; configure up to **32** B2 or R2 storage instances.
+- Create multiple links for one file, each with its own public/protected access, optional access code, and expiration.
+- Revoke or update one link without affecting other links or duplicating the stored object.
+- Keep file retention separate from link expiration; manage file deletion independently.
+- Download files or preview supported formats in the browser.
+- Verify uploaded content with Worker-computed **SHA-256**; optionally look up the hash on VirusTotal.
+- Apply database changes through versioned SQL migrations.
 
-Both storage providers use their S3-compatible APIs. Credentials are never exposed to the browser.
+The Worker handles authorization and streams files from private S3-compatible buckets. Storage credentials remain server-side.
 
-## Runtime secrets
+## How it works
 
-Set three Worker Secrets:
+```text
+Browser ── HTTPS ──► Cloudflare Worker
+                      ├── D1: files, shares, upload sessions, encrypted settings
+                      └── Private object storage
+                          ├── Backblaze B2 (one or more storage IDs)
+                          └── Cloudflare R2 (one or more storage IDs)
+```
+
+A **file** owns its metadata, storage ID, object, and retention deadline. A **share link** points to a file and has its own ID, access policy, access code, and expiration. Share permissions are checked for every public metadata, preview, and download request.
+
+## Requirements
+
+- A Cloudflare account with **Workers** and **D1** enabled.
+- A private Backblaze B2 or Cloudflare R2 bucket and its S3 API credentials.
+- [Bun](https://bun.sh/) for development, tests, and builds.
+- Wrangler access to the Cloudflare account for local/CLI deployment.
+- A custom domain or route for the Worker: `workers_dev` and preview URLs are disabled by default.
+
+Keep the object bucket private; do not use a public bucket URL as a substitute for Worker authorization.
+
+## Quick start
+
+### 1. Create a D1 database
+
+Create a D1 database in the Cloudflare dashboard or with Wrangler. Record its **name** and **database UUID**.
+
+Export both values in the terminal that will run Bun or Wrangler:
+
+```sh
+export D1_DATABASE_NAME="your-d1-database"
+export D1_DATABASE_ID="00000000-0000-4000-8000-000000000000"
+```
+
+Replace the example UUID with your real database ID. Both variables are required by `scripts/configure-d1.mjs`, which generates the gitignored `wrangler.generated.jsonc` containing the `DB` binding. Do not commit live database IDs or secrets.
+
+### 2. Configure Worker secrets
+
+Create these **Worker Secrets** in Cloudflare's dashboard under **Workers & Pages → your Worker → Settings → Variables and Secrets**:
 
 | Secret | Purpose |
 | --- | --- |
-| `ADMIN_PATH` | Private administrator URL segment (letters, numbers, underscores, or hyphens) |
-| `ADMIN_PASSWORD` | Administrator password (at least 6 characters) |
-| `APP_MASTER_KEY` | Random 32-byte base64 value used to encrypt D1 settings and derive session/share-code keys |
+| `ADMIN_PATH` | Private administrator URL segment, containing only letters, numbers, `_`, or `-`. |
+| `ADMIN_PASSWORD` | Administrator password; at least 6 characters are required, but use a long, unique password. |
+| `APP_MASTER_KEY` | Base64-encoded, randomly generated 32-byte key protecting app settings and access-code encryption keys. |
 
-Generate the master key locally:
+Generate the master key **locally**:
 
 ```sh
 openssl rand -base64 32
 ```
 
-Keep these secrets out of source control. The master key protects encrypted D1 settings with AES-256-GCM and derives purpose-specific keys via HKDF-SHA256. Rotating the master key without re-encrypting existing settings and protected share codes makes them unreadable. Changing the administrator password invalidates existing admin sessions after deployment.
+The application derives its internal session and code-encryption keys from `APP_MASTER_KEY`. **Back up this key securely.** Replacing or losing it without a coordinated re-encryption process makes encrypted storage configuration and existing protected-link codes unreadable. Do not put any of these values in Git.
 
-No B2/R2 credentials, regions, account IDs, or bucket names are required as Worker Secrets or Variables.
+Object storage credentials and the optional VirusTotal API key are configured later in the admin dashboard, not as Worker Secrets.
 
-## Build/deploy environment
-
-Supply the following build-time values:
-
-| Variable | Purpose |
-| --- | --- |
-| `D1_DATABASE_NAME` | Name of a newly created D1 database |
-| `D1_DATABASE_ID` | UUID of that D1 database |
-
-`scripts/configure-d1.mjs` generates the gitignored `wrangler.generated.jsonc`, including the native `DB` binding.
-
-### Start with a fresh D1 database
-
-The initial SQL migration, **`migrations/0001_initial.sql`**, creates:
-
-- `files`, with indexes for creation and expiration.
-- `upload_sessions`, with a required `storage_id` referencing a configured storage ID.
-- `app_settings`, containing encrypted B2, R2 and optional VirusTotal configuration.
-
-There is no storage-reset table, import bookkeeping table, automatic bucket clearing, or storage compatibility mode. File records must contain an explicit `storageId`. A missing or unknown storage ID is rejected; a provider name such as `b2` or `r2` is not a substitute for an ID.
-
-**Use a new D1 database for this fresh-start schema.** Changing the contents of `0001_initial.sql` does not replay a migration already marked as applied by Wrangler on an older database. Pointing this release at a database created with previous schemas will not automatically upgrade that schema. This repository deliberately does not ship destructive resets or historical compatibility scripts. Do not reuse an old D1 database without a separately planned, explicit migration.
-
-## Deploy
-
-Create a new D1 database through Cloudflare, set the D1 build variables and the three Worker Secrets, then run:
+### 3. Install and publish
 
 ```sh
 bun install
 bun run deploy
 ```
 
-The deploy script applies the initial D1 migration, builds, and publishes the Worker. To deploy via a Cloudflare Git-connected build:
+The `deploy` command runs **remote D1 migrations → Vite build → Wrangler deploy**. It is equivalent to `bun run deploy:publish`. Failed migration steps prevent subsequent deployment steps.
 
-```text
-Build command:  bun run build
-Deploy command: bun run deploy:publish
-```
+Because `workers_dev` is disabled, configure a **custom domain or Worker route** in Cloudflare before opening the app.
 
-## Configure multiple storage IDs in the admin dashboard
+### 4. Add storage and upload
 
-1. Navigate to `https://your-domain/<ADMIN_PATH>` and sign in using `ADMIN_PASSWORD`.
-2. Open **Object storage settings** and select **Add storage**.
-3. Assign a unique, permanent identifier such as `b2-primary`, `b2-backup`, `r2-photos`, or `r2-archive`. IDs must begin with a lowercase letter, contain 2–32 lowercase alphanumeric/underscore/hyphen characters, and are unique across all providers.
-4. Select the provider for this ID and enter its credentials:
-   - **Backblaze B2:** Private bucket name, region (for example `us-west-004`), application key ID, and application key.
-   - **Cloudflare R2:** Cloudflare account ID, private bucket name, and R2 S3 API access key ID/secret. The S3 endpoint is `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` with signing region `auto`.
-5. Save. The Worker verifies bucket listing access before encrypting the config in D1. Repeat to add as many as 32 independent storage IDs of either provider.
+1. Visit `https://your-domain/<ADMIN_PATH>` and sign in.
+2. Open **Object storage settings → Add storage**.
+3. Give the storage an immutable ID, for example `b2-primary`, `b2-backup`, or `r2-media`.
+4. Choose **B2** or **R2**, provide the private bucket name and provider-specific credentials, and save.
+5. Select the **storage ID**, not merely the provider, when uploading a file.
 
-**When uploading, choose the storage ID, not the provider.** Only configured IDs appear. The selected ID is persisted in the upload session (`storage_id`) and the completed file's JSON record (`storageId`). Downloads, previews, deletions and expiration cleanup always use that exact ID, not a global B2/R2 preference.
+Each storage ID has separate credentials and a bucket. IDs must start with a lowercase letter and be 2–32 characters long, using lowercase letters, digits, `_`, or `-`. The app checks bucket listing access before saving a configuration.
 
-Storage IDs and their provider types cannot be changed after creation. Bucket/account/region changes and deleting a storage ID are blocked while any file or upload session references that ID. Credentials may be rotated without changing the storage location. Keep credentials available while files exist. Removing a configuration does not delete an entire bucket.
+| Provider | Required settings |
+| --- | --- |
+| Backblaze B2 | Bucket, region (for example `us-west-004`), application key ID, application key |
+| Cloudflare R2 | Bucket, 32-character account ID, R2 S3 access key ID, secret access key |
 
-Configure the optional VirusTotal API key separately in Object storage settings. All storage credentials are encrypted in D1 using `APP_MASTER_KEY`; no additional Worker Secrets, Variables, or R2 bindings are required.
+R2 uses `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` and the signing region `auto`. Storage settings are encrypted in D1 with a key derived from `APP_MASTER_KEY`.
 
-## Multiple share links per file
+Storage IDs and provider types cannot be renamed. Deleting a storage configuration or changing its bucket/account/region is blocked while files or upload sessions reference it; credential rotation is supported. **Removing a storage configuration never deletes an entire bucket.**
 
-A file can have any number of independent share links without duplicating the object in B2 or R2. The administrator's **Share links** section on each file lets you create, copy, edit, and revoke individual links. Each link has its own 16-character identifier, public or access-code-protected mode, access code, expiry, and authorization revision. Editing one link invalidates only that link's authorization cookies; revoking it does not delete the file or affect its other links. Deleting the file revokes all links and deletes the stored object.
+## Managing files and share links
 
-**SQL migrations:** `migrations/0001_initial.sql` remains unchanged; `migrations/0002_file_shares.sql` creates a separate `shares` table with a foreign key to `files`. The migration converts each existing file's original link into a share record with the **same URL, access code, and expiration**, so original links continue to work. The initial share from a new upload also retains the file ID as its link ID. Additional links get new random IDs. Share-link expiration never deletes the underlying file; file expiration and manual file deletion do.
+After upload, a file receives one initial share link. Its link ID matches the file ID; further links get independent random 16-character IDs.
 
-`bun run deploy` applies pending D1 migrations to the configured database before publishing. No new Worker Secrets or object storage variables are needed.
+In **File management**, use:
 
-## Dependabot updates and automatic merging
+- **Share links** to create, copy, edit, or revoke links individually.
+- **File settings** to change the file's retention deadline independently.
+- **Download** to retrieve the original file as an administrator.
+- **Delete file** to remove the stored object and all of its share links.
 
-Dependabot checks npm packages and GitHub Actions every **Thursday at 01:00 UTC**.
+A link can be **Public** (anyone with the URL) or **Access code protected**. Access codes may be supplied by the administrator or generated automatically. Protected access is remembered in a Secure, HttpOnly, SameSite=Strict cookie for up to **24 hours**; changing a link's settings invalidates that link's existing authorization. Authorization is not shared between links.
 
-The trusted `.github/workflows/dependabot-auto-merge.yml` workflow is triggered **only after the `CI` workflow finishes successfully for a pull request**. It squash-merges eligible Dependabot pull requests after verifying the current PR author, signed Dependabot commit, precise commit SHA, base commit SHA, mergeability, and update metadata. It never checks out or executes code from an untrusted PR.
+Supported expiration choices are **Never**, **1 hour**, **24 hours**, **3 days**, and **7 days**. A share's expiration immediately blocks access through that link but does **not** delete the file or affect sibling links. File expiration blocks all links and the scheduled cleanup later deletes the file object. New uploads have no file expiration unless an administrator changes it.
 
-Only stable **Patch** and **Minor** dependency updates are eligible. Major updates, prerelease versions (including `dev`, `beta`, and `rc`), failing CI, and stale CI runs are left for manual review. The automation uses a post-CI merge, so a PR's GitHub `auto_merge` field does not need to be enabled beforehand.
+VirusTotal integration is optional. The lookup sends the file's **SHA-256 hash**, not its contents; it is a reputation check, **not an antivirus scan or guarantee of safety**.
 
-**Repository rule recommended:** In GitHub **Settings → Branches → Add branch protection rule**, protect `main` and enable **Require status checks to pass before merging**, selecting the **`validate`** check from the `CI` workflow. This separately prevents humans or other automation from merging changes without CI; the post-CI Dependabot workflow already enforces its own successful-CI gate. Repository administration permissions are required to create this rule. The workflow needs `contents: write` and `pull-requests: write` via `GITHUB_TOKEN`.
+## Database and migrations
 
-## Local development
+D1 holds four tables:
 
-Copy `.dev.vars.example` to `.dev.vars`, set the three Worker Secrets, and supply `D1_DATABASE_NAME` and `D1_DATABASE_ID` to the development shell.
+| Table | Role |
+| --- | --- |
+| `files` | Object metadata, storage ID, creation time, and file expiration |
+| `shares` | Multiple independent links per file, including encrypted access codes and share expiration |
+| `upload_sessions` | In-progress upload reservations associated with a storage ID |
+| `app_settings` | Encrypted storage configurations and optional VirusTotal key |
+
+Versioned migrations:
+
+| File | Effect |
+| --- | --- |
+| `migrations/0001_initial.sql` | Initial `files`, `upload_sessions`, and `app_settings` schema |
+| `migrations/0002_file_shares.sql` | Adds `shares` and migrates existing single-link settings into the first share |
+
+The `0002` migration preserves existing links' **IDs/URLs, access codes, and expiry**. File metadata retains compatibility fields from the initial schema; the `shares` table is authoritative for link access.
+
+**For a new installation:** use a new D1 database; `bun run deploy` applies both migrations.
+
+**For an existing installation using this repository's `0001` schema:** back up the D1 database, review pending SQL, then apply `0002` through the normal deploy workflow. Do not wipe the database or edit an already-applied migration.
+
+**For a database created with a different, older schema:** this repository does not provide an automatic legacy-schema conversion. Plan and test a separate migration before pointing the Worker at that database.
+
+Useful commands:
 
 ```sh
+# Apply only pending SQL migrations to remote D1 (no Worker deployment).
+bun run db:migrate
+
+# Deploy, including remote migration and build.
+bun run deploy
+```
+
+Cloudflare D1 tracks applied migrations. Applying a migration does not re-run previously recorded migration files. Keep database backups before schema changes; production data is not recreated by the build.
+
+## Development and CI
+
+For local development, copy the example Worker secrets file and edit only your local copy:
+
+```sh
+cp .dev.vars.example .dev.vars
+# Set D1_DATABASE_NAME and D1_DATABASE_ID in your shell.
 bun install
 bun run dev
 ```
 
-Local development applies all pending SQL migrations to the local D1 database. Configure the private object storage providers in the local administrator dashboard.
+`bun run dev` applies migrations to **local** D1 and starts Vite. Local database contents are separate from the remote production D1 database. Configure local storage instances in the local dashboard.
 
-## Cleanup and safety
+Run validation before pushing:
 
-Only one scheduled cleanup runs: **every six hours**, expired files are deleted from the specific backend recorded on each file, and abandoned uploads are cleaned from the storage ID recorded on their upload sessions. There is no first-run wipe or periodic whole-bucket reset. Objects outside the app's tracked files are never scanned and bulk-deleted as part of setup.
+```sh
+bun run typecheck
+bun test
+bun run build
+```
 
-Keep B2 and R2 buckets private. Downloads go through the authenticated Worker, and session/download cookies are Secure, HttpOnly and SameSite=Strict. The admin file list currently returns up to 500 records, and HTTP Range downloads are not implemented.
+The build requires `D1_DATABASE_NAME` and `D1_DATABASE_ID` in the environment. GitHub's **CI** runs typechecking, tests, and a Worker/assets build, but it does **not** publish to Cloudflare or migrate a production database.
+
+**Reproducible builds:** the repository currently has **no committed Bun lockfile**, so `bun install` may resolve newer package versions allowed by `package.json`. For strictly reproducible CI and releases, commit a generated `bun.lock` and then switch CI to frozen-lockfile installation.
+
+## Cloudflare Git-connected deployment
+
+For **Workers Builds** connected to this GitHub repository, provide `D1_DATABASE_NAME` and `D1_DATABASE_ID` as **build environment variables**, and configure the same runtime Worker Secrets listed above.
+
+Use these commands to avoid building twice:
+
+```text
+Build command:  bun run build
+Deploy command: bun run db:migrate && wrangler deploy
+```
+
+The build generates the Worker bundle and deployment configuration through the Cloudflare Vite plugin; Wrangler locates the generated deployment configuration afterward. The deploy command applies pending **remote** migrations before publishing the built Worker.
+
+If you instead use `bun run deploy` as the Cloudflare **deploy command**, that is valid but runs another build after the platform has already executed the build command. Choose **one deployment pipeline** for production, and verify deployments in the Cloudflare dashboard; a green GitHub CI job alone is not proof of a production release.
+
+## Dependency updates
+
+`.github/dependabot.yml` schedules npm and GitHub Actions checks every **Thursday at 01:00 UTC**. The `CI` workflow validates PRs.
+
+After successful pull-request CI, `.github/workflows/dependabot-auto-merge.yml` evaluates Dependabot metadata before merging. The policy:
+
+- Squash-merges eligible stable **patch/minor** updates after successful CI.
+- Leaves **major** and **prerelease** (including dev/beta/RC) updates for manual review.
+- Rejects failed CI, mismatched or changed commits, non-Dependabot PRs, and stale base commits.
+
+This is a post-CI merge action, not GitHub's per-PR `auto_merge` toggle. Protect `main` with a required **`validate`** CI status check in repository settings so that other merge paths are also gated; repository administration permissions are needed to configure branch protection.
+
+## Operations and security
+
+- **Private buckets and least-privilege credentials:** grant only required bucket/object operations; do not expose B2/R2 credentials to the browser.
+- **Access scope:** public links are bearer URLs; anyone with a valid public URL can access its file. Share links are not user accounts, and an access code is not end-to-end encryption.
+- **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**; large backlogs require subsequent runs.
+- **Data deletion:** file deletion targets the specific recorded storage ID and the `files/<file-id>` object. It does not enumerate or purge unrelated bucket objects.
+- **Monitoring:** check Cloudflare deployment logs, Worker errors, D1 migrations, and scheduled cleanup. Treat GitHub CI and Cloudflare deployment as separate status checks.
+- **Resource limits:** maximum upload size is **90 MiB**; the administrator file list returns at most **500 files**. HTTP Range/partial-content downloads are **not implemented**.
+- **Credentials and recovery:** keep a secure backup of `APP_MASTER_KEY`, use long unique administrator credentials, and test D1 backups and object storage recovery before production changes.
+- **Network exposure:** `workers_dev` and preview URLs are off; configure your own Worker route/domain.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| `D1_DATABASE_NAME is required` or `D1_DATABASE_ID is required` | Export both build-time values before running Bun/Wrangler. |
+| Missing `shares` table | Check whether `0002_file_shares.sql` was applied to the correct D1 database; run `bun run db:migrate`. |
+| Storage cannot be added | Verify the private bucket, provider credentials, and bucket-list permission. |
+| Storage cannot be removed or relocated | Delete or move all files and finish/clean upload sessions referencing that storage ID. |
+| Share link returns 404 | The link may be expired/revoked or the file expired/deleted; an admin can inspect remaining links. |
+| Worker deployed but no public URL | Configure a custom domain or route; `workers_dev` is disabled. |
+| GitHub checks pass but the app is unchanged | Check the separate Cloudflare deployment run and its environment variables. |
+
+## References
+
+- [Cloudflare D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
+- [Cloudflare Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
+- [Cloudflare Vite plugin / Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)
+- [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)
+- [GitHub Dependabot configuration](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference/)
