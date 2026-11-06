@@ -119,6 +119,12 @@ Supported expiration choices are **Never**, **1 hour**, **24 hours**, **3 days**
 
 VirusTotal integration is optional. The lookup sends the file's **SHA-256 hash**, not its contents; it is a reputation check, **not an antivirus scan or guarantee of safety**.
 
+## Notifications and confirmations
+
+The admin dashboard uses **Sonner toasts** for successful uploads, saves, copies, and link changes. Newly generated access codes are available from the share-link controls and shown in a longer-lived toast with a **Copy code** action. Errors that require correcting a form stay visible inline; authentication and share access-code failures are also shown next to their forms. File uploads retain a real-time progress indicator.
+
+Deleting a file, revoking an individual share link, or removing a storage configuration requires an accessible **Base UI Alert Dialog** confirmation. Canceling does not send a delete request. An operation failure remains visible in the dialog, and the dialog stays open for retry.
+
 ## Database and migrations
 
 D1 holds four tables:

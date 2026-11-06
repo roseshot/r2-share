@@ -1,6 +1,7 @@
 import { StrictMode, Suspense, lazy, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { routeForPath, type Route } from "./routes";
+import { Notifications } from "./notifications";
 import "./style.css";
 
 const Home = lazy(() => import("./home"));
@@ -42,4 +43,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+createRoot(document.getElementById("root")!).render(<StrictMode><App /><Notifications /></StrictMode>);

@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, Card, Input, Select } from "./ui";
+import { ConfirmDialog } from "./confirm-dialog";
+import { successToast } from "./notifications";
 import type { StorageBackend } from "./lib";
 
 type StorageSummary =
@@ -29,7 +31,8 @@ export default function AdminSettings({ api, onSaved }: {
   const [editing, setEditing] = useState<string | null>(null);
   const [virusTotalKey, setVirusTotalKey] = useState("");
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [confirmStorage, setConfirmStorage] = useState<StorageSummary | null>(null);
+  const [removeError, setRemoveError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const change = (key: keyof StorageForm) => (value: string) =>
@@ -55,7 +58,7 @@ export default function AdminSettings({ api, onSaved }: {
         ? { region: storage.region, keyId: storage.keyId }
         : { accountId: storage.accountId, accessKeyId: storage.accessKeyId }),
     });
-    setError(""); setMessage("");
+    setError("");
   }
 
   async function send(url: string, method: string, data?: object) {
@@ -71,7 +74,7 @@ export default function AdminSettings({ api, onSaved }: {
   async function save(event: FormEvent) {
     event.preventDefault();
     if (saving) return;
-    setSaving(true); setError(""); setMessage("");
+    setSaving(true); setError("");
     try {
       const config = form.backend === "b2"
         ? { bucket: form.bucket, region: form.region, keyId: form.keyId,
@@ -83,33 +86,33 @@ export default function AdminSettings({ api, onSaved }: {
         editing ? config : { id: form.id, backend: form.backend, ...config });
       setEditing(null); setForm(emptyForm);
       await reload();
-      setMessage("Storage configuration saved");
+      successToast("Storage configuration saved");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save storage");
     } finally { setSaving(false); }
   }
 
   async function remove(storage: StorageSummary) {
-    if (!window.confirm("Remove storage ID '" + storage.id + "'? Existing files must be deleted first.")) return;
-    setSaving(true); setError(""); setMessage("");
+    setSaving(true); setRemoveError("");
     try {
       await send(api("/settings/storages/" + storage.id), "DELETE");
       if (editing === storage.id) { setEditing(null); setForm(emptyForm); }
+      setConfirmStorage(null);
       await reload();
-      setMessage("Storage configuration removed");
+      successToast("Storage configuration removed");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to remove storage");
+      setRemoveError(reason instanceof Error ? reason.message : "Unable to remove storage");
     } finally { setSaving(false); }
   }
 
   async function saveVirusTotal(event: FormEvent) {
     event.preventDefault();
-    setSaving(true); setError(""); setMessage("");
+    setSaving(true); setError("");
     try {
       await send(api("/settings"), "PATCH", { virusTotalApiKey: virusTotalKey });
       setVirusTotalKey("");
       await reload();
-      setMessage("VirusTotal settings saved");
+      successToast("VirusTotal settings saved");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save VirusTotal settings");
     } finally { setSaving(false); }
@@ -127,7 +130,7 @@ export default function AdminSettings({ api, onSaved }: {
         <>
           <div className="mt-6 space-y-3">
             {current.storages.length === 0 &&
-              <p className="text-sm text-zinc-500">No storage configured. Add one below.</p>}
+              <p className="text-sm text-zinc-500">No storage configured. Add your first storage ID below to enable uploads.</p>}
             {current.storages.map(storage => (
               <div key={storage.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
                 <div className="min-w-0">
@@ -140,7 +143,7 @@ export default function AdminSettings({ api, onSaved }: {
                 </div>
                 <div className="flex gap-2">
                   <Button type="button" size="sm" variant="secondary" onClick={() => edit(storage)} disabled={saving}>Edit</Button>
-                  <Button type="button" size="sm" variant="destructive" onClick={() => void remove(storage)} disabled={saving}>Remove</Button>
+                  <Button type="button" size="sm" variant="destructive" onClick={() => { setConfirmStorage(storage); setRemoveError(""); }} disabled={saving}>Remove</Button>
                 </div>
               </div>
             ))}
@@ -188,7 +191,14 @@ export default function AdminSettings({ api, onSaved }: {
         </>
       )}
       {error && <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-300">{error}</p>}
-      {message && <p role="status" className="mt-4 text-sm text-emerald-700 dark:text-emerald-300">{message}</p>}
+      <ConfirmDialog open={confirmStorage !== null}
+        onOpenChange={open => { if (!open) { setConfirmStorage(null); setRemoveError(""); } }}
+        title="Remove storage configuration?"
+        description={confirmStorage
+          ? 'Remove storage ID "' + confirmStorage.id + '"? This does not delete any bucket objects. Configurations in use cannot be removed.'
+          : ""}
+        confirmLabel="Remove storage" pending={saving} error={removeError}
+        onConfirm={() => { if (confirmStorage) void remove(confirmStorage); }} />
     </Card>
   );
 }

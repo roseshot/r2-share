@@ -1,8 +1,8 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import {
-  ArrowDownToLine, Check, Clock3,
+  ArrowDownToLine, Clock3,
   FileUp, LoaderCircle, LockKeyhole, LogOut,
-  ShieldAlert, ShieldCheck, Trash2, X
+  ShieldAlert, ShieldCheck, Trash2
 } from "lucide-react";
 import { Badge, Button, Card, Input, Select, buttonStyles } from "./ui";
 import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile, type Mode } from "./lib";
@@ -10,6 +10,8 @@ import { originalModificationDate } from "./file-info";
 import { ThemeSwitcher } from "./theme";
 import AdminSettings from "./admin-settings";
 import AdminShares from "./admin-shares";
+import { ConfirmDialog } from "./confirm-dialog";
+import { successToast } from "./notifications";
 
 const base = location.pathname;
 const api = (path: string) => base + "/api" + path;
@@ -45,7 +47,6 @@ export default function Admin() {
   const [password, setPassword] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [files, setFiles] = useState<ManagedFile[]>([]);
   const [listTruncated, setListTruncated] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
@@ -62,6 +63,9 @@ export default function Admin() {
   const [saving, setSaving] = useState(false);
   const [vtLoading, setVtLoading] = useState<string | null>(null);
   const [vtResults, setVtResults] = useState<Record<string, VirusTotalReport>>({});
+  const [confirmFile, setConfirmFile] = useState<ManagedFile | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   async function refresh() {
     setLoadingFiles(true);
@@ -83,7 +87,6 @@ export default function Admin() {
       .catch(() => setAuth("guest"));
   }, []);
 
-  function notify(text: string) { setMessage(text); setError(""); }
 
   async function login(event: FormEvent) {
     event.preventDefault();
@@ -110,7 +113,7 @@ export default function Admin() {
     if (selected.size > 90 * 1024 * 1024 || selected.size === 0) {
       setError("File size must be greater than zero and at most 90 MiB"); return;
     }
-    setUploading(true); setProgress(0); setError(""); setMessage("");
+    setUploading(true); setProgress(0); setError("");
     try {
       const init = await requestJson<{ id: string; token: string; code: string | null }>(
         api("/uploads"),
@@ -137,7 +140,7 @@ export default function Admin() {
         };
         xhr.send(selected);
       });
-      notify(init.code ? "File uploaded · Access code: " + init.code : "File uploaded successfully");
+      successToast("File uploaded successfully", init.code);
       setSelected(null); setCode(""); setMode("public"); setProgress(0);
       const field = document.getElementById("upload-file") as HTMLInputElement | null;
       if (field) field.value = "";
@@ -162,7 +165,7 @@ export default function Admin() {
 
   function beginEdit(record: ManagedFile) {
     setEditId(record.id); setEditFileDuration(-1);
-    setMessage(""); setError("");
+    setError("");
   }
 
   async function updateRecord(event: FormEvent) {
@@ -176,19 +179,21 @@ export default function Admin() {
         })
       });
       setVtResults(previous => { const next = { ...previous }; delete next[editId]; return next; });
-      setEditId(null); notify("File settings updated"); await refresh();
+      setEditId(null); await refresh(); successToast("File settings updated");
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
   }
 
   async function remove(record: ManagedFile) {
-    if (!window.confirm('Permanently delete "' + record.filename + '"? This also revokes all its share links.')) return;
-    setError("");
+    setDeleting(true);
+    setDeleteError("");
     try {
       await requestJson(api("/files/" + record.id), { method: "DELETE" });
-      notify("Deleted " + record.filename);
+      setConfirmFile(null);
       await refresh();
-    } catch (e) { setError((e as Error).message); }
+      successToast("File deleted");
+    } catch (e) { setDeleteError((e as Error).message); }
+    finally { setDeleting(false); }
   }
 
   if (auth === "checking") return <div className="grid min-h-screen place-items-center text-zinc-500">
@@ -228,10 +233,6 @@ export default function Admin() {
         <div className="flex items-center gap-2"><ThemeSwitcher /><Button variant="ghost" onClick={logout}><LogOut size={16}/>Sign out</Button></div>
       </header>
 
-      {message && <div role="status" className="mb-5 flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
-        <Check size={17}/><span className="break-all">{message}</span>
-        <button type="button" className="ml-auto shrink-0" aria-label="Dismiss notification" onClick={() => setMessage("")}><X size={16}/></button>
-      </div>}
       <div className="mb-5"><ErrorText message={error}/></div>
 
       <section className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_minmax(320px,.8fr)]">
@@ -319,7 +320,7 @@ export default function Admin() {
         </div>
         <div className="space-y-4">
           {listTruncated && <p role="status" className="text-sm text-amber-700 dark:text-amber-300">Only the first 500 files are listed.</p>}
-          {!loadingFiles && !files.length && <Card className="py-16 text-center text-sm text-zinc-500">No files yet. Uploaded files will appear here.</Card>}
+          {!loadingFiles && !files.length && <Card className="px-6 py-14 text-center"><h3 className="text-lg font-semibold">No files yet</h3><p className="mt-2 text-sm text-zinc-500">Choose a file above to create your first share link.</p></Card>}
           {files.map(record => <Card key={record.id} className="p-5 sm:p-6">
             <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
               <div className="min-w-0">
@@ -343,7 +344,7 @@ export default function Admin() {
                   VirusTotal
                 </Button>}
                 <Button size="sm" variant="ghost" onClick={() => editId === record.id ? setEditId(null) : beginEdit(record)}>Settings</Button>
-                <Button size="icon" variant="destructive" aria-label="Delete file" onClick={() => void remove(record)}><Trash2 size={16}/></Button>
+                <Button size="icon" variant="destructive" aria-label="Delete file" onClick={() => { setConfirmFile(record); setDeleteError(""); }}><Trash2 size={16}/></Button>
               </div>
             </div>
             {vtResults[record.id] && <div role="status" className="mt-4 rounded-xl border border-zinc-200 bg-zinc-100/80 px-4 py-3 text-sm text-zinc-700 dark:border-white/10 dark:bg-zinc-950/60 dark:text-zinc-300">
@@ -351,8 +352,7 @@ export default function Admin() {
               <p className="mt-2">{virusTotalSummary(vtResults[record.id])}</p>
               {vtResults[record.id].scanDate && <p className="mt-1 text-xs text-zinc-500">Last analysis: {new Date(vtResults[record.id].scanDate! * 1000).toLocaleString("en-US")}</p>}
             </div>}
-            <AdminShares fileId={record.id} shares={record.shares} api={api}
-              onSaved={refresh} onError={setError} />
+            <AdminShares fileId={record.id} shares={record.shares} api={api} onSaved={refresh} />
             {editId === record.id && <form
               className="mt-5 space-y-4 rounded-xl border border-zinc-200 bg-zinc-100/80 p-4 dark:border-white/10 dark:bg-black/20"
               onSubmit={updateRecord}>
@@ -377,6 +377,14 @@ export default function Admin() {
         </div>
       </section>
       <AdminSettings api={api} onSaved={() => void refresh()} />
+      <ConfirmDialog open={confirmFile !== null}
+        onOpenChange={open => { if (!open) { setConfirmFile(null); setDeleteError(""); } }}
+        title="Delete file?"
+        description={confirmFile
+          ? 'Permanently delete "' + confirmFile.filename + '" and revoke all its share links? This cannot be undone.'
+          : ""}
+        confirmLabel="Delete file" pending={deleting} error={deleteError}
+        onConfirm={() => { if (confirmFile) void remove(confirmFile); }} />
     </div>
   </main>;
 }

@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { Badge, Button, Input, Select } from "./ui";
+import { ConfirmDialog } from "./confirm-dialog";
+import { successToast } from "./notifications";
 import { durations, jsonBody, requestJson, timeText, type ManagedShare, type Mode } from "./lib";
 
-export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
+export default function AdminShares({ fileId, shares, api, onSaved }: {
   fileId: string;
   shares: ManagedShare[];
   api: (path: string) => string;
   onSaved: () => Promise<void>;
-  onError: (message: string) => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -16,7 +17,9 @@ export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
   const [code, setCode] = useState("");
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [confirmShare, setConfirmShare] = useState<ManagedShare | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   const endpoint = (id?: string) => api("/files/" + fileId + "/shares" + (id ? "/" + id : ""));
   const url = (id: string) => location.origin + "/" + id;
@@ -28,7 +31,7 @@ export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
-    setBusy(true); onError(""); setMessage("");
+    setBusy(true); setError("");
     try {
       const changing = editing !== null;
       const result = await requestJson<{ share: ManagedShare; code: string | null }>(
@@ -41,14 +44,10 @@ export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
         }
       );
       reset();
-      if (result.code) {
-        setRevealed(previous => ({ ...previous, [result.share.id]: result.code! }));
-        setMessage("Link saved. Access code: " + result.code);
-      } else {
-        setMessage("Share link saved");
-      }
+      if (result.code) setRevealed(previous => ({ ...previous, [result.share.id]: result.code! }));
       await onSaved();
-    } catch (error) { onError((error as Error).message); }
+      successToast(changing ? "Share link updated" : "Share link created", result.code);
+    } catch (error) { setError((error as Error).message); }
     finally { setBusy(false); }
   }
 
@@ -60,24 +59,24 @@ export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
     try {
       const result = await requestJson<{ code: string | null }>(endpoint(share.id) + "/code");
       if (result.code) setRevealed(previous => ({ ...previous, [share.id]: result.code! }));
-    } catch (error) { onError((error as Error).message); }
+    } catch (error) { setError((error as Error).message); }
   }
 
   async function copy(value: string) {
-    try { await navigator.clipboard.writeText(value); setMessage("Copied to clipboard"); }
-    catch { onError("Could not copy to clipboard"); }
+    try { await navigator.clipboard.writeText(value); successToast("Share link copied"); }
+    catch { setError("Could not copy to clipboard"); }
   }
 
   async function remove(share: ManagedShare) {
-    if (!window.confirm("Revoke this share link? The file and its other links will remain.")) return;
-    setBusy(true); onError(""); setMessage("");
+    setBusy(true); setDeleteError("");
     try {
       await requestJson(endpoint(share.id), { method: "DELETE" });
       setRevealed(previous => { const next = { ...previous }; delete next[share.id]; return next; });
-      setMessage("Share link revoked");
       if (editing === share.id) reset();
+      setConfirmShare(null);
       await onSaved();
-    } catch (error) { onError((error as Error).message); }
+      successToast("Share link revoked");
+    } catch (error) { setDeleteError((error as Error).message); }
     finally { setBusy(false); }
   }
 
@@ -87,7 +86,7 @@ export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
     setMode(share.mode);
     setCode("");
     setDuration(-1);
-    setMessage("");
+    setError("");
   }
 
   const isFormOpen = creating || editing !== null;
@@ -96,11 +95,11 @@ export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h3 className="text-sm font-semibold">Share links ({shares.length})</h3>
       <Button size="sm" variant="secondary" disabled={busy} onClick={() => {
-        reset(); setCreating(true); setMessage("");
+        reset(); setCreating(true); setError("");
       }}>Create share link</Button>
     </div>
     <div className="mt-3 space-y-3">
-      {shares.length === 0 && <p className="text-sm text-zinc-500">No active share links for this file.</p>}
+      {shares.length === 0 && <p className="text-sm text-zinc-500">No share links yet. Create one to share this file.</p>}
       {shares.map(share => <div key={share.id}
         className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-white/10 dark:bg-zinc-950/40">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -118,7 +117,7 @@ export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
             <Button type="button" size="sm" variant="ghost" disabled={busy}
               onClick={() => edit(share)}>Edit</Button>
             <Button type="button" size="sm" variant="destructive" disabled={busy}
-              onClick={() => void remove(share)}>Revoke</Button>
+              onClick={() => { setConfirmShare(share); setDeleteError(""); }}>Revoke</Button>
           </div>
         </div>
         {share.mode === "protected" && <div className="mt-2 flex items-center gap-2 text-xs">
@@ -157,6 +156,12 @@ export default function AdminShares({ fileId, shares, api, onSaved, onError }: {
         <Button type="button" size="sm" variant="ghost" onClick={reset}>Cancel</Button>
       </div>
     </form>}
-    {message && <p role="status" className="mt-3 break-all text-xs text-emerald-700 dark:text-emerald-300">{message}</p>}
+    {error && <p role="alert" className="mt-3 rounded-xl bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">{error}</p>}
+    <ConfirmDialog open={confirmShare !== null}
+      onOpenChange={open => { if (!open) { setConfirmShare(null); setDeleteError(""); } }}
+      title="Revoke share link?"
+      description="This link will stop working immediately. The file and its other share links will remain available."
+      confirmLabel="Revoke link" pending={busy} error={deleteError}
+      onConfirm={() => { if (confirmShare) void remove(confirmShare); }} />
   </section>;
 }
