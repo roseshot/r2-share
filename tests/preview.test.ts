@@ -3,6 +3,20 @@ import { readFileSync } from "node:fs";
 import { isArchiveFile, previewFormat } from "../src/preview-types";
 
 describe("safe file format selection", () => {
+  test("places cached VirusTotal results immediately below File preview, above SHA-256", () => {
+    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const preview = share.indexOf("<FilePreview ");
+    const virusTotal = share.indexOf('aria-label="VirusTotal reputation"');
+    const sha256 = share.indexOf("<FileChecksums ");
+    const download = share.indexOf('onClick={() => void download()}');
+    expect(preview).toBeGreaterThanOrEqual(0);
+    expect(virusTotal).toBeGreaterThan(preview);
+    expect(virusTotal).toBeLessThan(sha256);
+    expect(sha256).toBeLessThan(download);
+    expect(share).toContain('file.virusTotal?.status === "found"');
+    expect(share).toContain("View on VirusTotal");
+  });
+
   test("supports common image, PDF, text, audio and video previews", () => {
     expect(previewFormat("photo.jpeg")?.contentType).toBe("image/jpeg");
     expect(previewFormat("report.pdf")?.contentType).toBe("application/pdf");

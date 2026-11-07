@@ -133,11 +133,6 @@ export default function SharePage() {
                   </span>
                 </div>
                 <FilePreview key={[id, file.filename, file.size, file.checksums?.sha256].join(":")} id={id} file={file} />
-                {file.checksums ? <FileChecksums checksums={file.checksums} filename={file.filename!} /> :
-                  <section className="mt-6" aria-label="SHA-256">
-                    <h2 className="mb-2 text-sm font-medium">SHA-256</h2>
-                    <p className="text-sm text-zinc-500">SHA-256 is unavailable for this file.</p>
-                  </section>}
                 {file.checksums && <section className="mt-6 rounded-xl border border-zinc-200 p-4 dark:border-white/10"
                   aria-label="VirusTotal reputation">
                   <h2 className="flex items-center gap-2 text-sm font-semibold">
@@ -167,6 +162,11 @@ export default function SharePage() {
                     View on VirusTotal <ExternalLink size={15} aria-hidden="true" />
                   </a>
                 </section>}
+                {file.checksums ? <FileChecksums checksums={file.checksums} filename={file.filename!} /> :
+                  <section className="mt-6" aria-label="SHA-256">
+                    <h2 className="mb-2 text-sm font-medium">SHA-256</h2>
+                    <p className="text-sm text-zinc-500">SHA-256 is unavailable for this file.</p>
+                  </section>}
                 <div className="mt-8 border-t border-zinc-200 dark:border-white/10 pt-7">
                   <Button className="w-full" disabled={downloadBusy} onClick={() => void download()}>
                     <ArrowDownToLine size={17}/>{downloadBusy ? "Preparing download…" : "Download file"}

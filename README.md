@@ -229,7 +229,8 @@ and is never requested again for that hash, including when another identical
 file is uploaded. Existing files with verified hashes are queued once by the
 additive migration.
 
-Public share pages show a stored VirusTotal summary below SHA-256 when available,
+Public share pages show a stored VirusTotal summary directly below the
+**File preview** area (before the SHA-256 verification section) when available,
 plus a **View on VirusTotal** link that opens the external report in a new tab.
 A missing cached report shows a neutral pending message; opening a share,
 including a placeholder share, **never calls the VirusTotal API**. Protected
