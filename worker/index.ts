@@ -95,10 +95,10 @@ app.get("/api/files/:id", async c => {
     if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
     return c.json({ id: share.id, mode: "protected" });
   }
-  const hasChecksum = validChecksums(record.checksums);
+  const checksums = validChecksums(record.checksums) ? record.checksums : null;
   return c.json({ id: share.id, filename: record.filename, size: record.size, mime: record.mime,
-    ...(hasChecksum ? { checksums: record.checksums,
-      virusTotal: await getCachedVirusTotalReport(c.env, record.checksums.sha256) } : {}),
+    ...(checksums ? { checksums,
+      virusTotal: await getCachedVirusTotalReport(c.env, checksums.sha256) } : {}),
     ...(record.originalModifiedAt ? { originalModifiedAt: record.originalModifiedAt } : {}),
     mode: share.mode });
 });
