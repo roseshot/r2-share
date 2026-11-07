@@ -37,8 +37,14 @@ export const durations = [
 ];
 export function sizeText(n: number): string {
   if (n < 1024) return n + " B";
-  if (n < 1024 ** 2) return (n / 1024).toFixed(1) + " KiB";
-  return (n / (1024 ** 2)).toFixed(1) + " MiB";
+  const units = ["KiB", "MiB", "GiB", "TiB", "PiB"];
+  let size = n;
+  let unit = -1;
+  do {
+    size /= 1024;
+    unit++;
+  } while (size >= 1024 && unit < units.length - 1);
+  return size.toFixed(1) + " " + units[unit];
 }
 export function timeText(iso: string | null): string {
   if (iso === null) return "Never";

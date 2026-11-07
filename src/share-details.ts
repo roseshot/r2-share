@@ -2,6 +2,13 @@ import { RequestError, requestJson, type Share } from "./lib";
 
 const pick = (items: readonly string[], value: number): string => items[value % items.length];
 
+// The heavy tail allows uncommon large files without imposing format-specific size caps.
+function placeholderSize(baseSize: number, tailExponent: number, high: number, low: number): number {
+  const fraction = (high * 0x200000 + (low >>> 11)) / 0x20000000000000;
+  const size = Math.round(baseSize / Math.pow(1 - fraction, tailExponent));
+  return Math.min(size, Number.MAX_SAFE_INTEGER);
+}
+
 export function createPlaceholderShare(
   id: string,
   values: Uint32Array = crypto.getRandomValues(new Uint32Array(12)),
@@ -30,7 +37,7 @@ export function createPlaceholderShare(
     "Client list", "Monthly expenses", "Project costs"], values[4]);
   const formats = [
     {
-      mime: "application/pdf", minSize: 80 * 1024, maxSize: 4 * 1024 * 1024,
+      mime: "application/pdf", baseSize: 60 * 1024, tailExponent: 0.9,
       names: [
         `${pdfTopic} ${year}.pdf`,
         `Invoice_${compactDay}_${fileNumber}.pdf`,
@@ -45,7 +52,7 @@ export function createPlaceholderShare(
       ],
     },
     {
-      mime: "image/jpeg", minSize: 300 * 1024, maxSize: 5 * 1024 * 1024,
+      mime: "image/jpeg", baseSize: 500 * 1024, tailExponent: 0.65,
       names: [
         `IMG_${fileNumber}.jpg`,
         `DSC_${fileNumber}.jpg`,
@@ -60,7 +67,7 @@ export function createPlaceholderShare(
       ],
     },
     {
-      mime: "application/zip", minSize: 2 * 1024 * 1024, maxSize: 40 * 1024 * 1024,
+      mime: "application/zip", baseSize: 1024 * 1024, tailExponent: 1.3,
       names: [
         `${archiveTopic} backup ${day}.zip`,
         `${subject} files.zip`,
@@ -75,7 +82,7 @@ export function createPlaceholderShare(
       ],
     },
     {
-      mime: "text/plain", minSize: 200, maxSize: 12 * 1024,
+      mime: "text/plain", baseSize: 400, tailExponent: 0.66,
       names: [
         `notes.txt`,
         `todo.txt`,
@@ -90,7 +97,7 @@ export function createPlaceholderShare(
       ],
     },
     {
-      mime: "video/mp4", minSize: 8 * 1024 * 1024, maxSize: 88 * 1024 * 1024,
+      mime: "video/mp4", baseSize: 12 * 1024 * 1024, tailExponent: 1.1,
       names: [
         `VID_${compactDay}_${time}.mp4`,
         `VID_${fileNumber}.mp4`,
@@ -106,7 +113,7 @@ export function createPlaceholderShare(
     },
     {
       mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      minSize: 16 * 1024, maxSize: 800 * 1024,
+      baseSize: 16 * 1024, tailExponent: 1.0,
       names: [
         `${sheetTopic} ${year}.xlsx`,
         `Expenses ${month}.xlsx`,
@@ -126,7 +133,7 @@ export function createPlaceholderShare(
     id,
     mode: "public",
     filename: format.names[values[1] % format.names.length],
-    size: format.minSize + values[2] % (format.maxSize - format.minSize + 1),
+    size: placeholderSize(format.baseSize, format.tailExponent, values[2], values[6]),
     mime: format.mime,
     originalModifiedAt: modifiedAt,
     checksums: {

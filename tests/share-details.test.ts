@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { RequestError, type Share } from "../src/lib";
+import { RequestError, sizeText, type Share } from "../src/lib";
 import { createPlaceholderShare, loadShareDetails } from "../src/share-details";
 
 const id = "Kq8mH2_nP4xY7zQb";
@@ -23,8 +23,8 @@ describe("unavailable share presentation", () => {
     expect(result.file.id).toBe(id);
     expect(result.file.mode).toBe("public");
     expect(result.file.filename).toMatch(/\.(pdf|jpg|zip|txt|mp4|xlsx)$/);
-    expect(result.file.size).toBeGreaterThanOrEqual(200);
-    expect(result.file.size).toBeLessThan(90 * 1024 * 1024);
+    expect(result.file.size).toBeGreaterThan(0);
+    expect(Number.isSafeInteger(result.file.size)).toBe(true);
     expect(result.file.mime).toBeTruthy();
     expect(Date.parse(result.file.originalModifiedAt!)).toBeLessThan(Date.now());
     expect(result.file.checksums?.sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -34,13 +34,13 @@ describe("unavailable share presentation", () => {
 
   test("generates everyday filenames with camera, date, version, and duplicate conventions", () => {
     const samples = [
-      { extension: "pdf", mime: "application/pdf", min: 80 * 1024, max: 4 * 1024 * 1024 },
-      { extension: "jpg", mime: "image/jpeg", min: 300 * 1024, max: 5 * 1024 * 1024 },
-      { extension: "zip", mime: "application/zip", min: 2 * 1024 * 1024, max: 40 * 1024 * 1024 },
-      { extension: "txt", mime: "text/plain", min: 200, max: 12 * 1024 },
-      { extension: "mp4", mime: "video/mp4", min: 8 * 1024 * 1024, max: 88 * 1024 * 1024 },
+      { extension: "pdf", mime: "application/pdf", typical: [60 * 1024, 256 * 1024] },
+      { extension: "jpg", mime: "image/jpeg", typical: [500 * 1024, 2 * 1024 * 1024] },
+      { extension: "zip", mime: "application/zip", typical: [1024 * 1024, 8 * 1024 * 1024] },
+      { extension: "txt", mime: "text/plain", typical: [400, 2 * 1024] },
+      { extension: "mp4", mime: "video/mp4", typical: [12 * 1024 * 1024, 64 * 1024 * 1024] },
       { extension: "xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        min: 16 * 1024, max: 800 * 1024 },
+        typical: [16 * 1024, 80 * 1024] },
     ];
     const values = new Uint32Array(12);
     const variants = 10;
@@ -58,12 +58,16 @@ describe("unavailable share presentation", () => {
         expect(file.filename).not.toContain("/");
         expect(file.filename).not.toContain("\\");
         expect(file.filename).not.toMatch(/[<>:"|?*]/);
-        expect(file.size).toBeGreaterThanOrEqual(format.min);
-        expect(file.size).toBeLessThanOrEqual(format.max);
+        expect(Number.isSafeInteger(file.size)).toBe(true);
+        expect(file.size).toBeGreaterThan(0);
       }
-      values[2] = 0xffffffff;
-      expect(createPlaceholderShare(id, values).size).toBeLessThanOrEqual(format.max);
+      values[2] = 0x80000000;
+      values[6] = 0;
+      const typicalSize = createPlaceholderShare(id, values).size!;
+      expect(typicalSize).toBeGreaterThanOrEqual(format.typical[0]);
+      expect(typicalSize).toBeLessThanOrEqual(format.typical[1]);
       values[2] = 0;
+      values[6] = 0;
     }
     values[0] = 1;
     values[1] = 0;
@@ -77,6 +81,40 @@ describe("unavailable share presentation", () => {
     values[0] = 3;
     values[1] = 4;
     expect(createPlaceholderShare(id, values).filename).toMatch(/\(1\)\.txt$/);
+  });
+
+  test("does not cap placeholder sizes at previous per-format limits", () => {
+    const oldCaps = [4 * 1024 ** 2, 5 * 1024 ** 2, 40 * 1024 ** 2,
+      12 * 1024, 88 * 1024 ** 2, 800 * 1024];
+    const values = new Uint32Array(12);
+    for (let index = 0; index < oldCaps.length; index++) {
+      values[0] = index;
+      values[2] = 0xffffffff;
+      values[6] = 0xffffffff;
+      const size = createPlaceholderShare(id, values).size!;
+      expect(size).toBeGreaterThan(oldCaps[index]);
+      expect(Number.isSafeInteger(size)).toBe(true);
+    }
+  });
+
+  test("larger random quantiles produce larger files within each type", () => {
+    const values = new Uint32Array(12);
+    for (let category = 0; category < 6; category++) {
+      values[0] = category;
+      values[2] = 0x40000000;
+      const smaller = createPlaceholderShare(id, values).size!;
+      values[2] = 0xc0000000;
+      const larger = createPlaceholderShare(id, values).size!;
+      expect(larger).toBeGreaterThan(smaller);
+    }
+  });
+
+  test("formats large file sizes in natural binary units", () => {
+    expect(sizeText(512)).toBe("512 B");
+    expect(sizeText(2048)).toBe("2.0 KiB");
+    expect(sizeText(3 * 1024 ** 2)).toBe("3.0 MiB");
+    expect(sizeText(2 * 1024 ** 3)).toBe("2.0 GiB");
+    expect(sizeText(4 * 1024 ** 4)).toBe("4.0 TiB");
   });
 
   test("varies the subject inside the same filename pattern", () => {
