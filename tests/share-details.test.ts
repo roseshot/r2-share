@@ -97,6 +97,29 @@ describe("unavailable share presentation", () => {
     }
   });
 
+  test("never displays TiB or larger units for simulated files", () => {
+    const values = new Uint32Array(12);
+    values[2] = 0xffffffff;
+    values[6] = 0xffffffff;
+    for (let category = 0; category < 6; category++) {
+      values[0] = category;
+      const size = createPlaceholderShare(id, values).size!;
+      expect(size).toBeLessThan(1024 ** 4);
+      expect(size).toBeLessThanOrEqual(999 * 1024 ** 3);
+      expect(sizeText(size).endsWith("GiB")).toBe(true);
+    }
+    for (let category = 0; category < 6; category++) {
+      values[0] = category;
+      for (let index = 0; index < 100; index++) {
+        values[2] = Math.floor(index * (0xffffffff / 99));
+        values[6] = index * 42949673;
+        const size = createPlaceholderShare(id, values).size!;
+        expect(size).toBeLessThan(1024 ** 4);
+        expect(sizeText(size)).not.toMatch(/TiB|PiB/);
+      }
+    }
+  });
+
   test("larger random quantiles produce larger files within each type", () => {
     const values = new Uint32Array(12);
     for (let category = 0; category < 6; category++) {

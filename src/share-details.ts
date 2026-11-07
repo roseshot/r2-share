@@ -2,11 +2,12 @@ import { RequestError, requestJson, type Share } from "./lib";
 
 const pick = (items: readonly string[], value: number): string => items[value % items.length];
 
-// The heavy tail allows uncommon large files without imposing format-specific size caps.
+// Heavy-tailed sizes are type-aware but never exceed the GiB display range.
+const maxPlaceholderSize = 999 * 1024 ** 3;
 function placeholderSize(baseSize: number, tailExponent: number, high: number, low: number): number {
   const fraction = (high * 0x200000 + (low >>> 11)) / 0x20000000000000;
   const size = Math.round(baseSize / Math.pow(1 - fraction, tailExponent));
-  return Math.min(size, Number.MAX_SAFE_INTEGER);
+  return Math.min(size, maxPlaceholderSize);
 }
 
 export function createPlaceholderShare(
