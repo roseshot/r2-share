@@ -38,7 +38,7 @@ export default function SharePage() {
           throw new Error("Access expired. Enter the access code again.");
         }
         // Do not reveal link availability in the public download error message.
-        throw new Error("Download unavailable. Please try again.");
+        throw new Error("Server overloaded. Please try again.");
       }
       window.location.assign("/api/files/" + id + "/download");
     } catch (cause) {

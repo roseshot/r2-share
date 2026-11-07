@@ -814,7 +814,7 @@ export default function Admin() {
       <ConfirmDialog open={vtUploadFile !== null}
         onOpenChange={open => { if (!open) { setVtUploadFile(null); setVtUploadError(""); } }}
         title="Authorize VirusTotal file upload?"
-        description={`This uploads the entire file "${vtUploadFile?.filename ?? ""}" to VirusTotal when no SHA-256 report exists. VirusTotal may share uploaded samples with its security community and partners. Never submit private, sensitive, or confidential files. Only this selected file is authorized.`}
+        description={`This uploads the entire file "${vtUploadFile?.filename ?? ""}" to VirusTotal when no SHA-256 report exists. VirusTotal may share uploaded samples with its security community and partners. Never submit sensitive, personal, or confidential files. Only this selected file is authorized.`}
         confirmLabel="Authorize upload"
         pending={vtAuthorizing}
         error={vtUploadError}
