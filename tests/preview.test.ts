@@ -17,6 +17,13 @@ describe("safe file format selection", () => {
     expect(share).toContain("View on VirusTotal");
   });
 
+  test("uses a generic server overloaded message for public download errors", () => {
+    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    expect(share).toContain("Server overloaded. Please try again.");
+    expect(share).not.toContain("Download unavailable. Please try again.");
+    expect(share).toContain("Access expired. Enter the access code again.");
+  });
+
   test("supports common image, PDF, text, audio and video previews", () => {
     expect(previewFormat("photo.jpeg")?.contentType).toBe("image/jpeg");
     expect(previewFormat("report.pdf")?.contentType).toBe("application/pdf");

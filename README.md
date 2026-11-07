@@ -236,7 +236,17 @@ A missing cached report shows a neutral pending message; opening a share,
 including a placeholder share, **never calls the VirusTotal API**. Protected
 shares reveal reputation details only after the access code is accepted.
 The administrator VirusTotal button reads D1 only; it no longer triggers a live
-lookup. When a file is deleted (manually or by expiration), its D1 file
+lookup. Administrators can explicitly select **Submit to VirusTotal** for one
+file and confirm a warning that VirusTotal may share the complete submitted
+sample with other parties. This records authorization in D1 for that **file ID
+only**. On the next six-hour job, the Worker checks SHA-256 first; only if no
+report exists will it stream the authorized file's bytes from the private bucket
+to VirusTotal. Files up to 32 MiB use `POST /files`; larger TuckBox files use
+VirusTotal's single-use `/files/upload_url`, restricted to a HTTPS VirusTotal
+upload endpoint. Once accepted, the queue never uploads that hash again; it
+keeps querying the hash every six hours until a report is saved. Deleting the
+authorized file revokes authorization even when identical content remains.
+No file is uploaded solely because it entered the normal hash lookup queue. When a file is deleted (manually or by expiration), its D1 file
 record, share links, residual upload session, and unreferenced VirusTotal queue
 and cached report are removed. Identical files share a SHA-256 record, so
 the cached report is retained until the **last** matching file is deleted.
@@ -370,6 +380,8 @@ Downloads and media previews support single HTTP byte ranges, forwarded through 
 authorized Worker to the configured B2/R2/AWS S3 bucket. The Worker rejects invalid
 ranges with HTTP 416 and does not provide multipart byte-range responses.
 
+The share page shows **Server overloaded. Please try again.** when a public
+download is unavailable, without disclosing whether the share ID exists.
 The share page checks download availability with an authorized HEAD request
 before navigating to the download endpoint, so missing files and expired
 access codes can be explained inline. Preview errors provide a fallback

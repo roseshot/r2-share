@@ -10,6 +10,7 @@ export function createTestDatabase(): D1Database {
   database.exec(readFileSync(new URL("../migrations/0005_public_upload_pages.sql", import.meta.url), "utf8"));
   database.exec(readFileSync(new URL("../migrations/0006_virustotal_queue.sql", import.meta.url), "utf8"));
   database.exec(readFileSync(new URL("../migrations/0007_virustotal_cleanup.sql", import.meta.url), "utf8"));
+  database.exec(readFileSync(new URL("../migrations/0008_virustotal_manual_upload.sql", import.meta.url), "utf8"));
 
   function prepare(sql: string, params: unknown[] = []) {
     const statement = database.prepare(sql);

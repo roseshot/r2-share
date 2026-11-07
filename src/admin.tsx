@@ -99,6 +99,9 @@ export default function Admin() {
   const [saving, setSaving] = useState(false);
   const [vtLoading, setVtLoading] = useState<string | null>(null);
   const [vtResults, setVtResults] = useState<Record<string, VirusTotalReport>>({});
+  const [vtUploadFile, setVtUploadFile] = useState<ManagedFile | null>(null);
+  const [vtAuthorizing, setVtAuthorizing] = useState(false);
+  const [vtUploadError, setVtUploadError] = useState("");
   const [confirmFile, setConfirmFile] = useState<ManagedFile | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -345,6 +348,27 @@ export default function Admin() {
       setError((e as Error).message);
     } finally {
       setVtLoading(null);
+    }
+  }
+
+  async function authorizeVirusTotalUpload() {
+    if (!vtUploadFile || vtAuthorizing) return;
+    setVtAuthorizing(true);
+    setVtUploadError("");
+    try {
+      const result = await requestJson<{ status: "authorized" | "submitted" | "cached" }>(
+        api("/files/" + vtUploadFile.id + "/virustotal/upload"),
+        { method: "POST", ...jsonBody({}) },
+      );
+      successToast(result.status === "authorized"
+        ? "VirusTotal upload authorized for the next six-hour scan"
+        : result.status === "submitted" ? "This sample was already submitted to VirusTotal"
+          : "VirusTotal report is already cached");
+      setVtUploadFile(null);
+    } catch (e) {
+      setVtUploadError(e instanceof Error ? e.message : "Authorization failed");
+    } finally {
+      setVtAuthorizing(false);
     }
   }
 
@@ -754,10 +778,18 @@ export default function Admin() {
                 <a className={buttonStyles({ variant: "secondary", size: "sm" })} href={api("/files/" + record.id + "/download")}>
                   <ArrowDownToLine size={15}/>Download
                 </a>
-                {record.checksums && <Button size="sm" variant="ghost" onClick={() => void checkVirusTotal(record)} disabled={vtLoading !== null}>
-                  {vtLoading === record.id ? <LoaderCircle size={15} className="animate-spin"/> : <ShieldAlert size={15}/>}
-                  VirusTotal
-                </Button>}
+                {record.checksums && <>
+                  <Button size="sm" variant="ghost" onClick={() => void checkVirusTotal(record)} disabled={vtLoading !== null}>
+                    {vtLoading === record.id ? <LoaderCircle size={15} className="animate-spin"/> : <ShieldAlert size={15}/>}
+                    VirusTotal
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => {
+                    setVtUploadFile(record);
+                    setVtUploadError("");
+                  }}>
+                    Submit to VirusTotal
+                  </Button>
+                </>}
                 <Button size="icon" variant="destructive" aria-label="Delete file" onClick={() => { setConfirmFile(record); setDeleteError(""); }}><Trash2 size={16}/></Button>
               </div>
             </div>
@@ -779,6 +811,14 @@ export default function Admin() {
       </section>
       <AdminPublicUploads api={api} storageIds={storageIds} />
       <AdminSettings api={api} onSaved={() => void refresh()} />
+      <ConfirmDialog open={vtUploadFile !== null}
+        onOpenChange={open => { if (!open) { setVtUploadFile(null); setVtUploadError(""); } }}
+        title="Authorize VirusTotal file upload?"
+        description={`This uploads the entire file "${vtUploadFile?.filename ?? ""}" to VirusTotal when no SHA-256 report exists. VirusTotal may share uploaded samples with its security community and partners. Never submit private, sensitive, or confidential files. Only this selected file is authorized.`}
+        confirmLabel="Authorize upload"
+        pending={vtAuthorizing}
+        error={vtUploadError}
+        onConfirm={() => void authorizeVirusTotalUpload()} />
       <ConfirmDialog open={confirmFile !== null}
         onOpenChange={open => { if (!open) { setConfirmFile(null); setDeleteError(""); } }}
         title="Delete file?"

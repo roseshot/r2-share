@@ -584,6 +584,33 @@ app.get("/:entry/api/files/:id/virustotal", async c => {
   return c.json(await getCachedVirusTotalReport(c.env, record.checksums.sha256));
 });
 
+// Explicit per-file administrator consent. The six-hour cron checks SHA-256
+// before uploading any bytes to VirusTotal, never an unapproved file.
+app.post("/:entry/api/files/:id/virustotal/upload", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id)) return jsonError("File not found", 404);
+  const record = await getRecord(c.env, id);
+  if (!record || expired(record) || !validChecksums(record.checksums))
+    return jsonError("File not found or expired", 404);
+  if (!c.env.VIRUSTOTAL_API_KEY) return jsonError("VirusTotal API key is not configured", 503);
+  const sha256 = record.checksums.sha256;
+  if ((await getCachedVirusTotalReport(c.env, sha256)).status === "found")
+    return c.json({ status: "cached" });
+  const authorized = await c.env.DB.prepare(
+    "UPDATE virustotal_queue SET upload_file_id = ? WHERE sha256 = ? " +
+    "AND upload_file_id IS NULL AND upload_submitted_at IS NULL " +
+    "AND EXISTS (SELECT 1 FROM files WHERE id = ?)"
+  ).bind(id, sha256, id).run();
+  if (authorized.meta.changes === 1) return c.json({ status: "authorized" });
+  const row = await c.env.DB.prepare(
+    "SELECT upload_file_id, upload_submitted_at FROM virustotal_queue WHERE sha256 = ?"
+  ).bind(sha256).first<{ upload_file_id: string | null; upload_submitted_at: number | null }>();
+  if (!row) return jsonError("VirusTotal lookup is unavailable", 409);
+  if (row.upload_submitted_at !== null) return c.json({ status: "submitted" });
+  if (row.upload_file_id !== null) return c.json({ status: "authorized" });
+  return jsonError("VirusTotal upload authorization could not be saved", 409);
+});
+
 function validShareLabel(value: unknown): value is string {
   return typeof value === "string" && value.length <= 64 && !/[\x00-\x1f\x7f]/.test(value);
 }

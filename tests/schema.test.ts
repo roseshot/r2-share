@@ -131,6 +131,21 @@ describe("D1 SQLite migrations", () => {
     }
   });
 
+  test("adds explicit VirusTotal file-level consent flags without automatic submission", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec(initial);
+      db.exec(readFileSync(new URL("../migrations/0006_virustotal_queue.sql", import.meta.url), "utf8"));
+      db.exec(readFileSync(new URL("../migrations/0008_virustotal_manual_upload.sql", import.meta.url), "utf8"));
+      const sha = "a".repeat(64);
+      db.query("INSERT INTO virustotal_queue (sha256, enqueued_at) VALUES (?, 0)").run(sha);
+      expect(db.query("SELECT upload_file_id, upload_submitted_at FROM virustotal_queue WHERE sha256 = ?")
+        .get(sha)).toEqual({ upload_file_id: null, upload_submitted_at: null });
+    } finally {
+      db.close();
+    }
+  });
+
   test("supports multiple links to the same file with separate permissions", () => {
     const db = new Database(":memory:");
     try {

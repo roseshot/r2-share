@@ -62,6 +62,8 @@ export async function deleteRecord(env: Bindings, id: string): Promise<void> {
     env.DB.prepare("DELETE FROM shares WHERE file_id = ?").bind(id),
     env.DB.prepare("DELETE FROM files WHERE id = ?").bind(id),
     env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(id),
+    // Consent is file-specific, even if another file has the same SHA-256.
+    env.DB.prepare("UPDATE virustotal_queue SET upload_file_id = NULL WHERE upload_file_id = ?").bind(id),
     // Reports and queue entries are shared by identical content. Remove both
     // only after the last file referencing this SHA-256 has been deleted.
     ...(validChecksums(record.checksums) ? [

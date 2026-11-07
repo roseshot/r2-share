@@ -42,7 +42,8 @@ export default function SharePage() {
       }
       window.location.assign("/api/files/" + id + "/download");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Download unavailable. Please try again.");
+      setError(cause instanceof Error && cause.message === "Access expired. Enter the access code again."
+        ? cause.message : "Server overloaded. Please try again.");
     } finally {
       setDownloadBusy(false);
     }

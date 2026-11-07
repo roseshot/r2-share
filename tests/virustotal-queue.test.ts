@@ -242,6 +242,83 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(0);
   });
 
+  test("only an authenticated administrator can authorize one file for submission", async () => {
+    const app = setup();
+    const file = await app.upload("authorized-sample");
+    const endpoint = "/secret-admin/api/files/" + file.id + "/virustotal/upload";
+    const noAuth = await app.request(endpoint, { method: "POST", headers: { Origin: origin } });
+    expect(noAuth.status).toBe(401);
+    const crossOrigin = await app.request(endpoint, {
+      method: "POST", headers: { Cookie: await app.cookie(), Origin: "https://evil.example.com" },
+    });
+    expect(crossOrigin.status).toBe(403);
+    let requests = 0;
+    const lookup: typeof fetch = async () => {
+      requests++;
+      return new Response(null, { status: 404 });
+    };
+    const started = Date.now();
+    expect(await processVirusTotalQueue(app.env, undefined, lookup, started)).toBe(0);
+    expect(requests).toBe(1); // Hash-only until an administrator consents.
+    const authorized = await app.request(endpoint, {
+      method: "POST", headers: { Cookie: await app.cookie(), Origin: origin },
+    });
+    expect(authorized.status).toBe(200);
+    expect(await authorized.json()).toEqual({ status: "authorized" });
+    const second = await app.request(endpoint, {
+      method: "POST", headers: { Cookie: await app.cookie(), Origin: origin },
+    });
+    expect(await second.json()).toEqual({ status: "authorized" });
+    expect(await app.rows("SELECT upload_file_id FROM virustotal_queue"))
+      .toEqual([{ upload_file_id: file.id }]);
+    let submits = 0;
+    const submit: typeof fetch = async (input, init) => {
+      if (init?.method === "GET") return new Response(null, { status: 404 });
+      submits++;
+      expect(String(input)).toBe("https://www.virustotal.com/api/v3/files");
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("x-apikey")).toBe(app.env.VIRUSTOTAL_API_KEY);
+      expect(new Headers(init?.headers).get("Content-Type")).toMatch(/^multipart\/form-data; boundary=/);
+      const content = await new Response(init?.body).text();
+      expect(content).toContain('name="file"');
+      expect(content).toContain("authorized-sample");
+      return Response.json({ data: { type: "analysis", id: "analysis-123" } });
+    };
+    expect(await processVirusTotalQueue(app.env, undefined, submit, started + 6 * 3600000)).toBe(0);
+    expect(submits).toBe(1);
+    const state = await app.rows("SELECT upload_file_id, upload_submitted_at FROM virustotal_queue");
+    expect(state).toHaveLength(1);
+    expect(state[0].upload_file_id).toBe(file.id);
+    expect(typeof state[0].upload_submitted_at).toBe("number");
+    expect(await processVirusTotalQueue(app.env, undefined, submit, started + 12 * 3600000)).toBe(0);
+    expect(submits).toBe(1); // Never submit bytes twice.
+    expect(await processVirusTotalQueue(app.env, undefined,
+      async () => resultJson(), started + 18 * 3600000)).toBe(1);
+    expect((await getCachedVirusTotalReport(app.env, file.sha256)).status).toBe("found");
+    const cached = await app.request(endpoint, {
+      method: "POST", headers: { Cookie: await app.cookie(), Origin: origin },
+    });
+    expect(await cached.json()).toEqual({ status: "cached" });
+  });
+
+  test("deleting the authorized file revokes upload consent for identical content", async () => {
+    const app = setup();
+    const first = await app.upload("identical-but-separate");
+    await app.upload("identical-but-separate");
+    expect((await app.request("/secret-admin/api/files/" + first.id + "/virustotal/upload", {
+      method: "POST", headers: { Origin: origin, Cookie: await app.cookie() },
+    })).status).toBe(200);
+    await deleteRecord(app.env, first.id);
+    expect(await app.rows("SELECT upload_file_id FROM virustotal_queue"))
+      .toEqual([{ upload_file_id: null }]);
+    let postCalls = 0;
+    await processVirusTotalQueue(app.env, undefined, async (_input, init) => {
+      if (init?.method === "POST") postCalls++;
+      return new Response(null, { status: 404 });
+    });
+    expect(postCalls).toBe(0);
+  });
+
   test("the scheduled handler runs queue processing on the existing six-hour cron", async () => {
     const app = setup();
     await saveAppSettings(app.env, { storages: [storage], virusTotalApiKey: "vt-private-test-key" });
