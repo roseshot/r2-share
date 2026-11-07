@@ -634,7 +634,8 @@ export default function Admin() {
             <p className="text-xs leading-5 text-zinc-500">
               The Worker follows redirects and saves the file to the selected Storage ID.
               Leave the filename blank to use the final URL path.
-              The 90 MiB limit, share expiration and access settings above also apply.
+              URL imports stream through the Worker with no 90 MiB application limit.
+              The selected Storage ID, share expiration and access settings above also apply.
             </p>
             <label className="block text-sm" htmlFor="remote-file-url">File URL</label>
             <Input id="remote-file-url" type="url" value={remoteUrl}

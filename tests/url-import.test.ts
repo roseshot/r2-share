@@ -40,6 +40,12 @@ function setup() {
       if (failPut) throw new Error("Simulated bucket failure after write");
       return { size: new TextEncoder().encode(contents).length, uploaded: new Date() };
     },
+    async putMultipart(key, body) {
+      const contents = await new Response(body).text();
+      objects.set(key, contents);
+      if (failPut) throw new Error("Simulated bucket failure after write");
+      return { size: new TextEncoder().encode(contents).length, uploaded: new Date() };
+    },
     async delete(keys) {
       for (const key of Array.isArray(keys) ? keys : [keys]) objects.delete(key);
     },
@@ -71,17 +77,23 @@ const fileResponse = (content: string, extra: Record<string, string> = {}) =>
   } });
 
 describe("administrator remote URL import", () => {
-  test("rejects SSRF hosts, unsafe ports, credentials and invalid schemes", () => {
+  test("blocks private and metadata destinations while allowing public IPs and custom ports", () => {
     for (const candidate of [
       "file:///etc/passwd", "https://localhost/secret", "http://127.0.0.1/",
       "http://169.254.169.254/latest/meta-data/", "http://[::1]/",
       "http://2130706433/", "https://metadata.google.internal/",
       "http://intranet.local/file", "https://a.internal/test",
-      "https://user:password@example.com/", "https://example.com:8080/file",
-      "https://example.com/#fragment", "https://singlelabel/",
+      "https://user:password@example.com/", "https://singlelabel/",
+      "http://192.168.1.1:8080/file", "https://10.2.3.4/",
+      "http://172.16.0.7/", "http://100.64.1.1/", "http://0.0.0.0/",
+      "https://[fc00::1]:8443/", "http://[fe80::1]/",
+      "http://[::ffff:127.0.0.1]/", "http://[::ffff:192.168.0.1]/",
+      "http://192.0.2.1/", "http://198.51.100.1/",
     ]) expect(() => validateRemoteUrl(candidate)).toThrow();
-    expect(validateRemoteUrl("https://files.example.com/test?download=1").hostname)
-      .toBe("files.example.com");
+    expect(validateRemoteUrl("https://files.example.com:8443/test?download=1").port).toBe("8443");
+    expect(validateRemoteUrl("http://8.8.8.8:9000/file").hostname).toBe("8.8.8.8");
+    expect(validateRemoteUrl("https://[2606:4700:4700::1111]:8443/file").port).toBe("8443");
+    expect(validateRemoteUrl("https://example.com/f#fragment").hash).toBe("");
     expect(validateRemoteUrl("http://files.example.com/file").protocol).toBe("http:");
   });
 
@@ -137,14 +149,11 @@ describe("administrator remote URL import", () => {
     expect(await app.dbRows("SELECT * FROM upload_sessions")).toHaveLength(0);
   });
 
-  test("accepts administrator-supplied filenames and fallback HEAD length", async () => {
+  test("accepts administrator-supplied filenames and unknown content lengths", async () => {
     const app = setup();
     const methods: string[] = [];
     const request: typeof fetch = async (_, init) => {
       methods.push(init!.method!);
-      if (init?.method === "HEAD") return new Response(null, {
-        headers: { "Content-Length": "6" },
-      });
       return new Response("abcdef", { headers: { "Content-Type": "text/plain" } });
     };
     const result = await importRemoteFile(app.env, {
@@ -152,7 +161,7 @@ describe("administrator remote URL import", () => {
     }, request);
     expect(result.filename).toBe("renamed.txt");
     expect(result.mode).toBe("public");
-    expect(methods).toEqual(["GET", "HEAD"]);
+    expect(methods).toEqual(["GET"]);
     expect(app.objects.get(dataKey(result.id))).toBe("abcdef");
   });
 
@@ -163,13 +172,13 @@ describe("administrator remote URL import", () => {
       calls++;
       return new Response(null, { status: 302, headers: { Location: "http://127.0.0.1/admin" } });
     };
-    await expect(importRemoteFile(app.env, options, request)).rejects.toThrow("public hostname");
+    await expect(importRemoteFile(app.env, options, request)).rejects.toThrow("private or reserved");
     expect(calls).toBe(1);
     expect(await app.dbRows("SELECT * FROM upload_sessions")).toHaveLength(0);
     expect(app.objects.size).toBe(0);
   });
 
-  test("rejects redirect loops, missing lengths and oversized responses", async () => {
+  test("rejects infinite redirect loops and length mismatches, not merely large declared sizes", async () => {
     const app = setup();
     let calls = 0;
     const loop: typeof fetch = async () => {
@@ -177,13 +186,16 @@ describe("administrator remote URL import", () => {
       return new Response(null, { status: 302, headers: { Location: "/again" } });
     };
     await expect(importRemoteFile(app.env, options, loop)).rejects.toThrow("Too many URL redirects");
-    expect(calls).toBe(6);
-    const noSize: typeof fetch = async () => new Response("abc");
-    await expect(importRemoteFile(app.env, options, noSize)).rejects.toThrow("Content-Length");
+    expect(calls).toBe(21);
     const oversized: typeof fetch = async () =>
       fileResponse("abc", { "Content-Length": String(90 * 1024 * 1024 + 1) });
-    await expect(importRemoteFile(app.env, options, oversized)).rejects.toThrow("90 MiB");
+    await expect(importRemoteFile(app.env, options, oversized))
+      .rejects.toThrow("Remote file size does not match Content-Length");
     expect(await app.dbRows("SELECT * FROM files")).toHaveLength(0);
+    const unknown = await importRemoteFile(app.env, options,
+      async () => new Response("chunked-body", { headers: { "Content-Type": "text/plain" } }));
+    expect(unknown.size).toBe(12);
+    expect(app.objects.get(dataKey(unknown.id))).toBe("chunked-body");
   });
 
   test("rolls back a short response and a bucket write failure", async () => {

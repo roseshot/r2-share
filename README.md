@@ -4,7 +4,7 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 
 ## Features
 
-- Upload multiple files, drag in folders as ZIP archives, paste images, files, and plain text, or **import directly from a remote URL** (**90 MiB per file**).
+- Upload multiple files, drag in folders as ZIP archives, or paste images, files and text (**90 MiB per browser upload**); administrators can also **import remote URLs** through streaming multipart upload.
 - Choose a named storage ID at upload time; configure up to **32** B2, R2, or AWS S3 storage instances.
 - Create multiple links for one file, each with its own admin-only name, public/protected access, optional access code, and expiration.
 - Create public upload pages with time expiry and/or a maximum number of successful uploads; contributors need no admin login.

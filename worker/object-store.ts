@@ -19,8 +19,18 @@ export interface ObjectStore {
   get(key: string, range?: string): Promise<ObjectBody | null>;
   head(key: string): Promise<ObjectInfo | null>;
   put(key: string, body: string | ReadableStream<Uint8Array>, contentType: string, length: number): Promise<ObjectInfo>;
+  /** S3 multipart stream for administrator URL imports with unknown or large sizes. */
+  putMultipart?(key: string, body: ReadableStream<Uint8Array>, contentType: string): Promise<ObjectInfo>;
   delete(keys: string | string[]): Promise<void>;
   list(options: { prefix: string; limit: number; cursor?: string }): Promise<ObjectPage>;
+}
+
+const MULTIPART_PART_SIZE = 8 * 1024 * 1024;
+const MULTIPART_MAX_PARTS = 10_000;
+
+function xmlEscape(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
 /** Escape only XML character references used by S3 ListObjectsV2. */
@@ -182,6 +192,102 @@ function s3Store(options: {
       const head = await this.head(key);
       if (!head) throw new Error(`${label} object disappeared after PUT`);
       return head;
+    },
+    async putMultipart(key, body, contentType) {
+      // Memory stays bounded to one 8 MiB part. The 10,000-part maximum is
+      // imposed by the S3 multipart API, not by the browser upload limit.
+      const objectUrl = urlFor(key);
+      const urlWith = (name: string, value: string) => {
+        const url = new URL(objectUrl);
+        url.searchParams.set(name, value);
+        return url.toString();
+      };
+      const started = await requireOk(await signed("POST", urlWith("uploads", ""), {
+        headers: { "Content-Type": contentType },
+      }), "CreateMultipartUpload");
+      const initiation = await started.text();
+      const uploadId = tag(initiation, "UploadId");
+      if (!uploadId || uploadId.length > 2048) throw new Error("Invalid S3 multipart upload ID");
+      const parts: { number: number; etag: string }[] = [];
+      const reader = body.getReader();
+      let total = 0;
+      let finished = false;
+      try {
+        let bytes = new Uint8Array(MULTIPART_PART_SIZE);
+        let used = 0;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            if (used) {
+              if (parts.length >= MULTIPART_MAX_PARTS) throw new Error("S3 multipart part limit exceeded");
+              const number = parts.length + 1;
+              const url = new URL(urlWith("uploadId", uploadId));
+              url.searchParams.set("partNumber", String(number));
+              const reply = await requireOk(await signed("PUT", url.toString(), {
+                body: bytes.slice(0, used),
+                headers: { "Content-Length": String(used) },
+              }), "UploadPart");
+              const etag = reply.headers.get("etag");
+              await reply.body?.cancel();
+              if (!etag) throw new Error("Missing S3 upload part ETag");
+              parts.push({ number, etag });
+            }
+            break;
+          }
+          if (!value?.byteLength) continue;
+          let offset = 0;
+          while (offset < value.byteLength) {
+            const amount = Math.min(bytes.length - used, value.byteLength - offset);
+            bytes.set(value.subarray(offset, offset + amount), used);
+            used += amount;
+            total += amount;
+            if (!Number.isSafeInteger(total)) throw new Error("Remote file exceeds supported metadata size");
+            offset += amount;
+            if (used === MULTIPART_PART_SIZE) {
+              if (parts.length >= MULTIPART_MAX_PARTS) throw new Error("S3 multipart part limit exceeded");
+              const number = parts.length + 1;
+              const url = new URL(urlWith("uploadId", uploadId));
+              url.searchParams.set("partNumber", String(number));
+              const reply = await requireOk(await signed("PUT", url.toString(), {
+                body: bytes,
+                headers: { "Content-Length": String(bytes.byteLength) },
+              }), "UploadPart");
+              const etag = reply.headers.get("etag");
+              await reply.body?.cancel();
+              if (!etag) throw new Error("Missing S3 upload part ETag");
+              parts.push({ number, etag });
+              bytes = new Uint8Array(MULTIPART_PART_SIZE);
+              used = 0;
+            }
+          }
+        }
+        if (!parts.length) throw new Error("Remote file is empty");
+        const xml = "<CompleteMultipartUpload>" +
+          parts.map(part => "<Part><PartNumber>" + part.number + "</PartNumber><ETag>" +
+            xmlEscape(part.etag) + "</ETag></Part>").join("") +
+          "</CompleteMultipartUpload>";
+        const complete = await requireOk(await signed("POST", urlWith("uploadId", uploadId), {
+          headers: { "Content-Type": "application/xml" }, body: xml,
+        }), "CompleteMultipartUpload");
+        const completion = await complete.text();
+        // AWS can return HTTP 200 with an embedded XML error.
+        if (/<(?:[a-zA-Z0-9_]+:)?Error(?:\s|>)/.test(completion) ||
+            !/<(?:[a-zA-Z0-9_]+:)?CompleteMultipartUploadResult(?:\s|>)/.test(completion))
+          throw new Error("S3 multipart completion failed");
+        finished = true;
+        const info = await this.head(key);
+        if (!info || info.size !== total) throw new Error("S3 multipart object length mismatch");
+        return info;
+      } catch (error) {
+        await reader.cancel(error).catch(() => undefined);
+        throw error;
+      } finally {
+        if (!finished) {
+          await signed("DELETE", urlWith("uploadId", uploadId))
+            .then(response => response.body?.cancel()).catch(() => undefined);
+        }
+        reader.releaseLock();
+      }
     },
     async delete(keys) {
       for (const key of Array.isArray(keys) ? keys : [keys]) {

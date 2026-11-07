@@ -5,7 +5,7 @@
 const hex = (buffer: ArrayBuffer): string =>
   Array.from(new Uint8Array(buffer), byte => byte.toString(16).padStart(2, "0")).join("");
 
-export function monitorUpload(source: ReadableStream<Uint8Array>, expectedSize: number) {
+export function monitorUpload(source: ReadableStream<Uint8Array>, expectedSize: number | null) {
   let size = 0;
   type StreamingCrypto = Crypto & {
     DigestStream?: new (algorithm: string) =>
@@ -20,7 +20,7 @@ export function monitorUpload(source: ReadableStream<Uint8Array>, expectedSize: 
   const stream = source.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
     async transform(chunk, controller) {
       size += chunk.byteLength;
-      if (size > expectedSize) throw new Error("Upload exceeds declared file size");
+      if (expectedSize !== null && size > expectedSize) throw new Error("Upload exceeds declared file size");
       if (writer) await writer.write(chunk);
       else chunks.push(chunk.slice());
       controller.enqueue(chunk);
