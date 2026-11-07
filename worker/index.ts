@@ -6,8 +6,8 @@ import { getVirusTotalReport } from "./virustotal";
 import { generatePlaceholderShare } from "./placeholder-share";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Bindings, FileRecord, ShareRecord, Mode, StorageConfig } from "./model";
-import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareLinkExpired, expirationDate, validChecksums, validStoredId } from "./model";
-import { randomId, randomFileId, randomRevision, randomCode, signToken, readToken, equalText, encryptCode, decryptCode } from "./crypto";
+import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareLinkExpired, expirationDate, validChecksums, validStoredId, validPublicUploadId } from "./model";
+import { randomId, randomFileId, randomPublicUploadId, randomRevision, randomCode, signToken, readToken, equalText, encryptCode, decryptCode } from "./crypto";
 import { getRecord, saveRecord, deleteRecord, listFilePage, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload, storageInUse, getStorageUsage } from "./storage";
 import { getObjectStore, isStorageConfigured } from "./object-store";
 import { getShare, getPrimaryShare, listShares, listSharesForFileIds, createShare, updateShare, deleteShare } from "./shares";
@@ -343,7 +343,7 @@ app.post("/:entry/api/public-uploads", async c => {
     return jsonError("Set a valid label, storage, and time or upload-count limit");
   }
   const page = {
-    id: randomFileId(), label: body.label.trim(), storageId: body.storageId,
+    id: randomPublicUploadId(), label: body.label.trim(), storageId: body.storageId,
     expiresAt: expirationDate(body.expiresIn!),
     maxUploads: body.maxUploads ?? null, completedUploads: 0,
     createdAt: new Date().toISOString(),
@@ -357,7 +357,7 @@ app.get("/:entry/api/public-uploads", async c =>
 
 app.delete("/:entry/api/public-uploads/:id", async c => {
   const id = c.req.param("id");
-  if (!validStoredId(id) || !await getPublicUploadPage(c.env, id)) return jsonError("Upload page not found", 404);
+  if (!validPublicUploadId(id) || !await getPublicUploadPage(c.env, id)) return jsonError("Upload page not found", 404);
   await revokePublicUploadPage(c.env, id);
   return c.json({ ok: true });
 });
@@ -413,7 +413,7 @@ app.post("/api/public-uploads/:id/files", async c => {
 app.put("/api/public-uploads/:id/files/:fileId", async c => {
   if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
   const pageId = c.req.param("id"), id = c.req.param("fileId");
-  if (!validStoredId(pageId) || !validStoredId(id)) return jsonError("Invalid upload request");
+  if (!validPublicUploadId(pageId) || !validStoredId(id)) return jsonError("Invalid upload request");
   const token = await readToken(c.env.SESSION_SECRET, c.req.header("X-Upload-Token"));
   if (!token || token.scope !== "public_upload" || token.pageId !== pageId ||
       !token.record || typeof token.record !== "object" ||

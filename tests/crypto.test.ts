@@ -71,7 +71,9 @@ describe("encrypted access codes", () => {
   test("rejects malformed, wrong-version, and wrong-variant UUIDs and object paths", () => {
     const id = randomFileId();
     expect(validUuidV4(id.replace(/-4/, "-1"))).toBe(false);
-    expect(validUuidV4(id.replace(/-([89ab])/, "-0"))).toBe(false);
+    const segments = id.split("-");
+    segments[3] = "0" + segments[3].slice(1);
+    expect(validUuidV4(segments.join("-"))).toBe(false);
     expect(validStoredId("A".repeat(35))).toBe(false);
     expect(validStoredId("A".repeat(37))).toBe(false);
     expect(validObjectKey("/tuckbox/" + id)).toBe(false);

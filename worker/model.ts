@@ -69,7 +69,9 @@ export const shareExpiry = (record: FileRecord): string | null => record.shareEx
 export const shareExpired = (record: FileRecord): boolean =>
   expired(record) || (shareExpiry(record) !== null && Date.parse(shareExpiry(record)!) <= Date.now());
 export const validId = (id: string): boolean => /^[A-Za-z0-9_-]{8,10}$/.test(id);
-const legacyFileId = (id: string): boolean => /^[A-Za-z0-9_-]{16}$/.test(id);
+// Public upload page IDs retain the pre-existing 16-character format.
+export const validPublicUploadId = (id: string): boolean => /^[A-Za-z0-9_-]{16}$/.test(id);
+const legacyFileId = validPublicUploadId;
 export const validUuidV4 = (id: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 // Accept existing 16-character file records; never generate new legacy IDs.

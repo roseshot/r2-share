@@ -1,5 +1,5 @@
 import type { Bindings, FileRecord } from "./model";
-import { validStoredId } from "./model";
+import { validPublicUploadId } from "./model";
 import { initialShare } from "./shares";
 
 export interface PublicUploadPage {
@@ -25,7 +25,7 @@ const pendingCutoff = () => Date.now() - 600000;
 const uploadingCutoff = () => Date.now() - 86400000;
 
 export async function getPublicUploadPage(env: Bindings, id: string): Promise<PublicUploadPage | null> {
-  if (!validStoredId(id)) return null;
+  if (!validPublicUploadId(id)) return null;
   const row = await env.DB.prepare(
     "SELECT id, label, storage_id, expires_at, max_uploads, completed_uploads, created_at " +
     "FROM public_upload_pages WHERE id = ?"
