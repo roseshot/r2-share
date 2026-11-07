@@ -12,10 +12,24 @@ describe("public upload completion and invalid share navigation", () => {
     expect(page).not.toContain("Files are available to the administrator.");
     // The upload controls and page usage details only appear in the non-completed branch.
     const successStart = page.indexOf("{completed ? <div");
-    const controlsStart = page.indexOf("Public upload</p>", successStart);
+    const controlsStart = page.indexOf('<h1 className="break-words text-3xl font-semibold">', successStart);
     expect(successStart).toBeGreaterThanOrEqual(0);
     expect(controlsStart).toBeGreaterThan(successStart);
     expect(page.slice(successStart, controlsStart)).toContain("</div> : <>");
+  });
+
+  test("shows only relevant upload information", () => {
+    const page = source("src/public-upload.tsx");
+    expect(page).not.toContain(">Public upload</p>");
+    expect(page).not.toContain("Upload files without signing in.");
+    expect(page).not.toContain("No time limit");
+    expect(page).not.toContain("No file-count limit");
+    expect(page).not.toContain("slots available");
+    expect(page).toContain("page?.active && (page.expiresAt || page.remaining !== null)");
+    expect(page).toContain("90 MiB per file · folders become ZIPs · paste with Ctrl+V");
+    expect(page).toContain("Choose files</Button>");
+    expect(page).toContain("Choose folder</Button>");
+    expect(page).toContain("Uploading {current} · {progress}%");
   });
 
   test("uses the branded SharePage unavailable state for unknown IDs", () => {

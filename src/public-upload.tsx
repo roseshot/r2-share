@@ -149,30 +149,26 @@ export default function PublicUploadPage() {
         <CircleCheckBig size={52} className="mx-auto mb-5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
         <h1 className="text-2xl font-semibold">Upload successful</h1>
       </div> : <>
-      <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Public upload</p>
-      <h1 className="mt-3 break-words text-3xl font-semibold">{page?.label || "Upload files"}</h1>
-      {loading ? <p role="status" className="mt-6 text-sm text-zinc-500">Loading upload link…</p> : <>
-        {page && <div className="mt-4 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-          <p>{page.expiresAt ? "Link expires: " + new Date(page.expiresAt).toLocaleString() : "No time limit"}</p>
-          <p>{page.maxUploads === null ? "No file-count limit" :
-            page.completedUploads + " of " + page.maxUploads + " files uploaded"}
-            {page.remaining !== null && " · " + page.remaining + " slots available"}</p>
-        </div>}
+      <h1 className="break-words text-3xl font-semibold">{page?.label || "Upload files"}</h1>
+      {loading ? <p role="status" className="mt-6 text-sm text-zinc-500">Loading…</p> : <>
+        {page?.active && (page.expiresAt || page.remaining !== null) && (
+          <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+            {page.expiresAt && <>Until <time dateTime={page.expiresAt}>{new Date(page.expiresAt).toLocaleString()}</time></>}
+            {page.expiresAt && page.remaining !== null && " · "}
+            {page.remaining !== null && page.remaining + (page.remaining === 1 ? " upload remaining" : " uploads remaining")}
+          </p>
+        )}
         {!page?.active ? <p role="status" className="mt-6 rounded-xl bg-zinc-100 p-4 dark:bg-zinc-800">
           {page?.expired ? "This upload link has expired." :
             page ? "This upload link has reached its upload limit." : "Upload link unavailable."}
         </p> : <>
-          <p className="mt-5 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-            Upload files without signing in.
-            Each file can be up to 90 MiB. Folders are uploaded as ZIP archives.
-          </p>
           <form onSubmit={event => { void upload(event); }} className="mt-6 space-y-4">
             <label htmlFor="public-files" onDragOver={event => event.preventDefault()}
               onDrop={event => { void drop(event); }}
               className="file-drop flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-center dark:border-white/20 dark:bg-zinc-950/70">
               <FileUp size={26} className="mb-3 text-emerald-700 dark:text-emerald-300"/>
-              <span className="text-sm font-medium">Choose files, drag folders or paste with Ctrl+V</span>
-              <span className="mt-2 text-xs text-zinc-500">90 MiB per file · folders become ZIPs</span>
+              <span className="text-sm font-medium">Drop files or folders here</span>
+              <span className="mt-2 text-xs text-zinc-500">90 MiB per file · folders become ZIPs · paste with Ctrl+V</span>
             </label>
             <input id="public-files" className="sr-only" type="file" multiple
               disabled={uploading || preparing} onChange={event => { void choose(event); }} />
