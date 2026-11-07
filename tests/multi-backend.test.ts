@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { b64, signToken } from "../worker/crypto";
 import { bindTestSettings } from "../worker/app-config";
 import { bindObjectStore, getObjectStore, r2ObjectUrl } from "../worker/object-store";
-import { cleanupExpired, getRecord, saveRecord } from "../worker/storage";
+import { cleanupExpired, getRecord, getStorageUsage, saveRecord } from "../worker/storage";
 import { createTestDatabase } from "./d1-helper";
 import { dataKey, type Bindings, type FileRecord, type StorageConfig } from "../worker/model";
 import handler from "../worker/index";
@@ -125,6 +125,74 @@ describe("multiple object storage IDs", () => {
       expect(deleted.status).toBe(200);
       expect(app.maps[storage.id].has(dataKey(id))).toBe(false);
     }
+  });
+
+  test("persists separate storage usage snapshots after cleanup, independent of pagination", async () => {
+    const app = fixture();
+    const first = await app.upload("b2-alpha", "hello");
+    const second = await app.upload("b2-alpha", "world!");
+    const third = await app.upload("r2-beta", "four");
+
+    type Usage = { storageId: string; usedBytes: number | null;
+      fileCount: number | null; calculatedAt: string | null };
+    async function settingsUsage(): Promise<Usage[]> {
+      const response = await app.request("/private/api/settings", {
+        headers: { Origin: origin, Cookie: await app.cookie() },
+      });
+      expect(response.status).toBe(200);
+      return (await response.json() as { storageUsage: Usage[] }).storageUsage;
+    }
+    const before = await settingsUsage();
+    expect(before.map(row => row.storageId)).toEqual(storages.map(storage => storage.id));
+    expect(before.every(row => row.usedBytes === null && row.calculatedAt === null)).toBe(true);
+
+    expect(await cleanupExpired(app.env)).toBe(0);
+    const rows = await settingsUsage();
+    const byId = new Map(rows.map(row => [row.storageId, row]));
+    expect(byId.get("b2-alpha")).toMatchObject({ usedBytes: 11, fileCount: 2 });
+    expect(byId.get("r2-beta")).toMatchObject({ usedBytes: 4, fileCount: 1 });
+    expect(byId.get("b2-beta")).toMatchObject({ usedBytes: 0, fileCount: 0 });
+    expect(byId.get("r2-alpha")).toMatchObject({ usedBytes: 0, fileCount: 0 });
+    expect(Date.parse(byId.get("b2-alpha")!.calculatedAt!)).toBeGreaterThan(0);
+    expect(await app.env.DB.prepare("SELECT COUNT(*) AS count FROM storage_usage")
+      .first<{ count: number }>()).toEqual({ count: 4 });
+
+    await app.upload("b2-beta", "new");
+    expect((await settingsUsage()).find(row => row.storageId === "b2-beta")?.usedBytes).toBe(0);
+
+    const expired = (await getRecord(app.env, second))!;
+    expired.expiresAt = new Date(Date.now() - 1000).toISOString();
+    await saveRecord(app.env, expired);
+    expect(await cleanupExpired(app.env)).toBe(1);
+    const after = new Map((await settingsUsage()).map(row => [row.storageId, row]));
+    expect(after.get("b2-alpha")).toMatchObject({ usedBytes: 5, fileCount: 1 });
+    expect(after.get("b2-beta")).toMatchObject({ usedBytes: 3, fileCount: 1 });
+    expect(after.get("r2-beta")).toMatchObject({ usedBytes: 4, fileCount: 1 });
+    expect((await getStorageUsage(app.env, ["b2-alpha"])).map(row => row.usedBytes)).toEqual([5]);
+    expect(app.maps["b2-alpha"].has(dataKey(second))).toBe(false);
+    expect(app.maps["b2-alpha"].has(dataKey(first))).toBe(true);
+    expect(app.maps["r2-beta"].has(dataKey(third))).toBe(true);
+  });
+
+  test("tracks only successfully deleted files when cleanup has a backlog", async () => {
+    const app = fixture(["b2-alpha"]);
+    const original = await app.upload("b2-alpha", "keep");
+    const expiredIds = [];
+    for (let n = 0; n < 11; n++) {
+      const id = await app.upload("b2-alpha", "x");
+      const record = (await getRecord(app.env, id))!;
+      record.expiresAt = new Date(Date.now() - 1000).toISOString();
+      await saveRecord(app.env, record);
+      expiredIds.push(id);
+    }
+    expect(await cleanupExpired(app.env)).toBe(10);
+    expect((await getStorageUsage(app.env, ["b2-alpha"]))[0])
+      .toMatchObject({ usedBytes: 5, fileCount: 2 });
+    expect(await cleanupExpired(app.env)).toBe(1);
+    expect((await getStorageUsage(app.env, ["b2-alpha"]))[0])
+      .toMatchObject({ usedBytes: 4, fileCount: 1 });
+    expect(app.maps["b2-alpha"].has(dataKey(original))).toBe(true);
+    expect(expiredIds.every(id => !app.maps["b2-alpha"].has(dataKey(id)))).toBe(true);
   });
 
   test("rejects missing, unknown, or provider names instead of IDs", async () => {

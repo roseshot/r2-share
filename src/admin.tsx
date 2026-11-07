@@ -24,6 +24,13 @@ type UploadResult = {
   expiresAt: string | null;
 };
 
+type StorageUsage = {
+  storageId: string;
+  usedBytes: number | null;
+  fileCount: number | null;
+  calculatedAt: string | null;
+};
+
 type VirusTotalReport = {
   status: "found" | "not_found" | "not_configured" | "rate_limited" | "unavailable";
   reason?: string;
@@ -76,6 +83,7 @@ export default function Admin() {
   const [mode, setMode] = useState<Mode>("public");
   const [storageId, setStorageId] = useState("");
   const [storageIds, setStorageIds] = useState<string[]>([]);
+  const [storageUsage, setStorageUsage] = useState<StorageUsage[]>([]);
   const [code, setCode] = useState("");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -95,9 +103,13 @@ export default function Admin() {
   async function refresh() {
     setLoadingFiles(true);
     try {
-      const settings = await requestJson<{ storages: { id: string }[] }>(api("/settings"));
+      const settings = await requestJson<{
+        storages: { id: string }[];
+        storageUsage: StorageUsage[];
+      }>(api("/settings"));
       const available = settings.storages.map(storage => storage.id);
       setStorageIds(available);
+      setStorageUsage(settings.storageUsage);
       setStorageId(previous => available.includes(previous) ? previous : (available[0] ?? ""));
       const params = new URLSearchParams({ page: String(page), q: search, sort });
       if (storageFilter) params.set("storageId", storageFilter);
@@ -605,8 +617,26 @@ export default function Admin() {
             </p>
           </div>
           <div className="mt-7 space-y-3 border-t border-zinc-200 dark:border-white/10 pt-6 text-sm text-zinc-600 dark:text-zinc-400">
-            <div className="flex items-center justify-between"><span>Storage used (current page)</span>
-              <span className="font-medium text-zinc-900 dark:text-zinc-100">{sizeText(files.reduce((sum, f) => sum + f.size, 0))}</span></div>
+            <section aria-label="Storage used" className="space-y-2">
+              <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Storage used</h3>
+              {storageUsage.length ? <ul className="space-y-2">
+                {storageUsage.map(usage => <li key={usage.storageId}
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <Badge variant="muted">{usage.storageId}</Badge>
+                  <span className="text-right text-zinc-900 dark:text-zinc-100">
+                    {usage.usedBytes === null ? "Awaiting first cleanup" :
+                      sizeText(usage.usedBytes) + " · " + usage.fileCount +
+                        (usage.fileCount === 1 ? " file" : " files")}
+                  </span>
+                </li>)}
+              </ul> : <p className="text-xs text-zinc-500">No storage configured</p>}
+              <p className="text-xs leading-5 text-zinc-500">
+                {storageUsage.find(usage => usage.calculatedAt)?.calculatedAt
+                  ? "Calculated after cleanup: " +
+                    new Date(storageUsage.find(usage => usage.calculatedAt)!.calculatedAt!).toLocaleString()
+                  : "Usage is calculated after the next file cleanup."}
+              </p>
+            </section>
             <div className="flex items-center justify-between"><span>File cleanup</span><Badge>Every 6 hours</Badge></div>
             <div className="flex items-center justify-between"><span>Share links</span><Badge variant="muted">Configurable expiry</Badge></div>
           </div>

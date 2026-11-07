@@ -167,9 +167,20 @@ Deleting a file, revoking an individual share link, or removing a storage config
 
 The file management screen provides server-side filename search, storage filtering, creation-time sorting, and 25-file pagination. Share links can be given optional admin-only names to distinguish their intended recipients.
 
+The dashboard's **Storage used** section shows a separate D1-backed snapshot for each configured
+Storage ID: bytes stored, managed file count, and the last cleanup calculation time.
+After every scheduled **file cleanup** (every 6 hours), the Worker counts the sizes
+of the **remaining file records in D1**, including any expired files still awaiting
+a later cleanup batch, and atomically replaces the per-storage usage snapshot in D1.
+Unused storage IDs are recorded as **0 B / 0 files**. Before the first cleanup, the
+dashboard displays **Awaiting first cleanup** rather than guessing zero. This is
+**not a live bucket inventory**: objects outside TuckBox's managed file records
+and abandoned uploads are not included, and new uploads or manual deletions appear
+in usage after the next cleanup. Pagination and search do not affect these totals.
+
 ## Database and migrations
 
-D1 holds four tables:
+D1 holds five tables:
 
 | Table | Role |
 | --- | --- |
@@ -177,6 +188,7 @@ D1 holds four tables:
 | `shares` | Multiple independent links per file, including admin-only names, encrypted access codes and share expiration |
 | `upload_sessions` | In-progress upload reservations associated with a storage ID |
 | `app_settings` | Encrypted storage configurations and optional VirusTotal key |
+| `storage_usage` | Cleanup-recalculated bytes and file counts per configured Storage ID |
 
 Versioned migrations:
 
@@ -185,12 +197,13 @@ Versioned migrations:
 | `migrations/0001_initial.sql` | Initial `files`, `upload_sessions`, and `app_settings` schema |
 | `migrations/0002_file_shares.sql` | Adds `shares` and migrates existing single-link settings into the first share |
 | `migrations/0003_share_labels.sql` | Adds optional admin-only names without changing share URLs or access settings |
+| `migrations/0004_storage_usage.sql` | Adds the cleanup-generated per-storage usage snapshot table |
 
 The `0002` migration preserves existing links' **IDs/URLs, access codes, and expiry**. File metadata retains compatibility fields from the initial schema; the `shares` table is authoritative for link access.
 
-**For a new installation:** use a new D1 database; `bun run deploy` applies both migrations.
+**For a new installation:** use a new D1 database; `bun run deploy` applies all migrations.
 
-**For an existing installation using this repository's `0001` schema:** back up the D1 database, review pending SQL, then apply `0002` through the normal deploy workflow. Do not wipe the database or edit an already-applied migration.
+**For an existing installation using this repository's `0001` schema:** back up the D1 database, review pending SQL, then apply all remaining migrations through the normal deploy workflow. Do not wipe the database or edit an already-applied migration.
 
 **For a database created with a different, older schema:** this repository does not provide an automatic legacy-schema conversion. Plan and test a separate migration before pointing the Worker at that database.
 
@@ -274,7 +287,7 @@ apply to HEAD and partial requests.
 
 - **Private buckets and least-privilege credentials:** grant only required bucket/object operations; do not expose B2/R2 credentials to the browser.
 - **Access scope:** public links are bearer URLs; anyone with a valid public URL can access its file. Share links are not user accounts, and an access code is not end-to-end encryption.
-- **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**; large backlogs require subsequent runs.
+- **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**, then refreshes the D1 `storage_usage` snapshot; large deletion backlogs require subsequent runs.
 - **Data deletion:** file deletion targets the specific recorded storage ID and the `files/<file-id>` object. It does not enumerate or purge unrelated bucket objects.
 - **Monitoring:** check Cloudflare deployment logs, Worker errors, D1 migrations, and scheduled cleanup. Treat GitHub CI and Cloudflare deployment as separate status checks.
 - **Resource limits:** maximum upload size is **90 MiB**; the administrator file list returns at most **500 files**. single HTTP byte ranges are supported with **206 Partial Content** (multipart ranges return **416**).

@@ -6,6 +6,7 @@ export function createTestDatabase(): D1Database {
   database.exec(readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8"));
   database.exec(readFileSync(new URL("../migrations/0002_file_shares.sql", import.meta.url), "utf8"));
   database.exec(readFileSync(new URL("../migrations/0003_share_labels.sql", import.meta.url), "utf8"));
+  database.exec(readFileSync(new URL("../migrations/0004_storage_usage.sql", import.meta.url), "utf8"));
 
   function prepare(sql: string, params: unknown[] = []) {
     const statement = database.prepare(sql);

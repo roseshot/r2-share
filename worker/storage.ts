@@ -6,6 +6,18 @@ import { createInitialShareStatement } from "./shares";
 interface FileRow { record_json: string }
 interface FileIdRow { id: string }
 interface UploadSessionRow { id: string; storage_id: string }
+interface StorageUsageRow {
+  storage_id: string;
+  used_bytes: number;
+  file_count: number;
+  calculated_at: string;
+}
+export interface StorageUsage {
+  storageId: string;
+  usedBytes: number | null;
+  fileCount: number | null;
+  calculatedAt: string | null;
+}
 
 function parseRecord(value: unknown): FileRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -90,6 +102,54 @@ export async function listRecords(env: Bindings, maximum = 500):
   return { records, truncated: result.results.length > maximum };
 }
 
+/**
+ * Recalculate managed-file bytes from D1 for every configured storage ID.
+ * The entire snapshot is replaced atomically, so deleted files and empty
+ * storages are reflected after cleanup. Bucket objects outside files are
+ * intentionally not counted.
+ */
+export async function recalculateStorageUsage(env: Bindings): Promise<void> {
+  const now = new Date().toISOString();
+  const totals = await env.DB.prepare(
+    "SELECT json_extract(record_json, '$.storageId') AS storage_id, " +
+    "COALESCE(SUM(CAST(json_extract(record_json, '$.size') AS INTEGER)), 0) AS used_bytes, " +
+    "COUNT(*) AS file_count FROM files " +
+    "WHERE json_type(record_json, '$.storageId') = 'text' " +
+    "AND json_type(record_json, '$.size') = 'integer' " +
+    "GROUP BY json_extract(record_json, '$.storageId')"
+  ).all<{ storage_id: string; used_bytes: number; file_count: number }>();
+  const byId = new Map(totals.results.map(row => [row.storage_id, row]));
+  const storageIds = [...new Set((env.STORAGES ?? []).map(storage => storage.id))];
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM storage_usage"),
+    ...storageIds.map(id => {
+      const total = byId.get(id);
+      return env.DB.prepare(
+        "INSERT INTO storage_usage (storage_id, used_bytes, file_count, calculated_at) " +
+        "VALUES (?, ?, ?, ?)"
+      ).bind(id, total?.used_bytes ?? 0, total?.file_count ?? 0, now);
+    }),
+  ]);
+}
+
+/** Return the persisted cleanup snapshot; missing rows mean no cleanup has run yet. */
+export async function getStorageUsage(env: Bindings, storageIds: string[]): Promise<StorageUsage[]> {
+  if (!storageIds.length) return [];
+  const rows = await env.DB.prepare(
+    "SELECT storage_id, used_bytes, file_count, calculated_at FROM storage_usage"
+  ).all<StorageUsageRow>();
+  const byId = new Map(rows.results.map(row => [row.storage_id, row]));
+  return storageIds.map(id => {
+    const row = byId.get(id);
+    return {
+      storageId: id,
+      usedBytes: row?.used_bytes ?? null,
+      fileCount: row?.file_count ?? null,
+      calculatedAt: row?.calculated_at ?? null,
+    };
+  });
+}
+
 export async function cleanupExpired(env: Bindings): Promise<number> {
   const expired = await env.DB.prepare(
     "SELECT id FROM files WHERE expires_at IS NOT NULL AND expires_at <= ? " +
@@ -111,6 +171,7 @@ export async function cleanupExpired(env: Bindings): Promise<number> {
     }
     await abandonUpload(env, id);
   }
+  await recalculateStorageUsage(env);
   return removed;
 }
 

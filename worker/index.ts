@@ -7,7 +7,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Bindings, FileRecord, ShareRecord, Mode, StorageConfig } from "./model";
 import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareLinkExpired, expirationDate, validChecksums, validStoredId } from "./model";
 import { randomId, randomRevision, randomCode, signToken, readToken, equalText, encryptCode, decryptCode } from "./crypto";
-import { getRecord, saveRecord, deleteRecord, listFilePage, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload, storageInUse } from "./storage";
+import { getRecord, saveRecord, deleteRecord, listFilePage, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload, storageInUse, getStorageUsage } from "./storage";
 import { getObjectStore, isStorageConfigured } from "./object-store";
 import { getShare, listShares, listSharesForFileIds, createShare, updateShare, deleteShare } from "./shares";
 import { resolveBindings, readAppSettings, saveAppSettings, validateSettings, validateStorage, publicStorage, type AppSettings } from "./app-config";
@@ -242,6 +242,7 @@ app.get("/:entry/api/settings", async c => {
   const settings = await readAppSettings(c.env);
   return c.json({
     storages: (settings?.storages ?? []).map(publicStorage),
+    storageUsage: await getStorageUsage(c.env, (settings?.storages ?? []).map(storage => storage.id)),
     virusTotalEnabled: !!settings?.virusTotalApiKey,
   });
 });
