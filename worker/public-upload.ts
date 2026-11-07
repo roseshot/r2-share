@@ -1,6 +1,7 @@
 import type { Bindings, FileRecord } from "./model";
 import { validPublicUploadId } from "./model";
 import { initialShare } from "./shares";
+import { validChecksums } from "./model";
 
 export interface PublicUploadPage {
   id: string;
@@ -89,6 +90,7 @@ export async function claimPublicUpload(env: Bindings, fileId: string, pageId: s
  */
 export async function finishPublicUpload(env: Bindings, pageId: string, record: FileRecord, shareId: string): Promise<boolean> {
   const share = initialShare(record, shareId);
+  if (!validChecksums(record.checksums)) throw new Error("Missing verified upload SHA-256");
   const outcome = await env.DB.batch([
     env.DB.prepare(
       "UPDATE public_upload_pages SET completed_uploads = completed_uploads + 1 " +
@@ -109,8 +111,15 @@ export async function finishPublicUpload(env: Bindings, pageId: string, record: 
       share.encryptedCode ? JSON.stringify(share.encryptedCode) : null,
       share.expiresAt, share.createdAt),
     env.DB.prepare("DELETE FROM upload_sessions WHERE id = ? AND changes() = 1").bind(record.id),
+    // The previous DELETE succeeds only after the file and share are committed.
+    // A duplicate SHA-256 or a cached result is not an upload failure.
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO virustotal_queue (sha256, enqueued_at, next_attempt_at, attempts) " +
+      "SELECT ?, ?, 0, 0 WHERE changes() = 1 AND NOT EXISTS " +
+      "(SELECT 1 FROM virustotal_reports WHERE sha256 = ?)"
+    ).bind(record.checksums.sha256, Date.now(), record.checksums.sha256),
   ]);
-  return outcome.every(result => result.meta.changes === 1);
+  return outcome.slice(0, 4).every(result => result.meta.changes === 1);
 }
 
 export async function publicPageAvailability(env: Bindings, page: PublicUploadPage) {

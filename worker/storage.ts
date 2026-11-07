@@ -2,6 +2,7 @@ import type { Bindings, FileRecord } from "./model";
 import { dataKey, validStorageId, validChecksums, validStoredId } from "./model";
 import { getObjectStore, isStorageConfigured } from "./object-store";
 import { createInitialShareStatement } from "./shares";
+import { queueVirusTotalStatement } from "./virustotal";
 
 interface FileRow { record_json: string }
 interface FileIdRow { id: string }
@@ -60,6 +61,12 @@ export async function deleteRecord(env: Bindings, id: string): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM shares WHERE file_id = ?").bind(id),
     env.DB.prepare("DELETE FROM files WHERE id = ?").bind(id),
+    ...(validChecksums(record.checksums) ? [
+      env.DB.prepare(
+        "DELETE FROM virustotal_queue WHERE sha256 = ? AND NOT EXISTS " +
+        "(SELECT 1 FROM files WHERE json_extract(record_json, '$.checksums.sha256') = ?)"
+      ).bind(record.checksums.sha256, record.checksums.sha256),
+    ] : []),
   ]);
 }
 
@@ -84,6 +91,8 @@ export async function finishUpload(env: Bindings, record: FileRecord, shareId: s
     recordStatement(env, record),
     createInitialShareStatement(env, record, shareId),
     env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(record.id),
+    ...(validChecksums(record.checksums) ?
+      [queueVirusTotalStatement(env, record.checksums.sha256)] : []),
   ]);
 }
 

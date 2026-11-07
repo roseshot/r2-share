@@ -3,6 +3,14 @@ export type StorageBackend = "b2" | "r2" | "s3";
 export interface FileChecksums {
   sha256: string;
 }
+export type VirusTotalSummary = {
+  status: "found" | "pending" | "unavailable";
+  malicious?: number;
+  suspicious?: number;
+  harmless?: number;
+  undetected?: number;
+  scanDate?: number | null;
+};
 export type Share = {
   id: string;
   mode: Mode;
@@ -10,6 +18,7 @@ export type Share = {
   size?: number;
   mime?: string;
   checksums?: FileChecksums;
+  virusTotal?: VirusTotalSummary;
   originalModifiedAt?: string;
 };
 export type ManagedShare = {

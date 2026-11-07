@@ -76,6 +76,31 @@ describe("D1 SQLite migrations", () => {
     } finally { db.close(); }
   });
 
+  test("adds hash-keyed VirusTotal queue/cache and backfills existing verified files", () => {
+    const database = new Database(":memory:");
+    try {
+      database.exec(initial);
+      const sha256 = "a".repeat(64);
+      database.query("INSERT INTO files (id, record_json, created_at, expires_at) VALUES (?, ?, ?, ?)")
+        .run("existingFile00001", JSON.stringify({ checksums: { sha256 } }), "2026-11-01", null);
+      const migration = readFileSync(
+        new URL("../migrations/0006_virustotal_queue.sql", import.meta.url), "utf8");
+      expect(migration).not.toMatch(/DROP\\s+TABLE|DELETE\\s+FROM/i);
+      database.exec(migration);
+      expect(database.query("SELECT sha256 FROM virustotal_queue").all())
+        .toEqual([{ sha256 }]);
+      database.exec(migration);
+      expect(database.query("SELECT COUNT(*) AS total FROM virustotal_queue").get())
+        .toEqual({ total: 1 });
+      database.query("INSERT INTO virustotal_reports (sha256, report_json, checked_at) VALUES (?, ?, ?)")
+        .run(sha256, '{"status":"found"}', "2026-11-07");
+      expect(database.query("SELECT COUNT(*) AS total FROM virustotal_reports").get())
+        .toEqual({ total: 1 });
+    } finally {
+      database.close();
+    }
+  });
+
   test("supports multiple links to the same file with separate permissions", () => {
     const db = new Database(":memory:");
     try {

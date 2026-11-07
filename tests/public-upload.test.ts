@@ -144,6 +144,11 @@ describe("public upload pages", () => {
     expect(record?.mode).toBe("protected");
     expect(record?.encryptedCode).toBeDefined();
     expect((await app.request("/api/files/" + start.shareId)).status).toBe(200);
+    const queued = await app.env.DB.prepare(
+      "SELECT sha256 FROM virustotal_queue"
+    ).all<{ sha256: string }>();
+    expect(queued.results).toHaveLength(1);
+    expect(queued.results[0].sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(await (await app.request("/api/files/" + start.shareId)).json())
       .toEqual({ id: start.shareId, mode: "protected" });
     expect((await app.request("/api/files/" + start.shareId + "/download")).status).toBe(403);

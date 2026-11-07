@@ -144,6 +144,7 @@ export function createPlaceholderShare(
     checksums: {
       sha256: Array.from(values.subarray(4), value => value.toString(16).padStart(8, "0")).join(""),
     },
+    virusTotal: { status: "pending" },
   };
 }
 

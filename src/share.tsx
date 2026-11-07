@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Archive, ArrowDownToLine, CalendarClock, FileAudio, FileImage, FileText, FileType, FileVideo, HardDrive, Info, KeyRound, Link2Off } from "lucide-react";
+import { Archive, ArrowDownToLine, CalendarClock, FileAudio, FileImage, FileText, FileType, FileVideo, HardDrive, Info, KeyRound, Link2Off, ShieldAlert, ExternalLink } from "lucide-react";
 import { Popover } from "@base-ui/react/popover";
 import { Button, Card, Input } from "./ui";
 import { jsonBody, requestJson, sizeText, type Share } from "./lib";
@@ -138,6 +138,35 @@ export default function SharePage() {
                     <h2 className="mb-2 text-sm font-medium">SHA-256</h2>
                     <p className="text-sm text-zinc-500">SHA-256 is unavailable for this file.</p>
                   </section>}
+                {file.checksums && <section className="mt-6 rounded-xl border border-zinc-200 p-4 dark:border-white/10"
+                  aria-label="VirusTotal reputation">
+                  <h2 className="flex items-center gap-2 text-sm font-semibold">
+                    <ShieldAlert size={17} aria-hidden="true" />VirusTotal
+                  </h2>
+                  {file.virusTotal?.status === "found" ?
+                    <>
+                      <p className="mt-2 text-sm">
+                        {file.virusTotal.malicious ?? 0} malicious · {file.virusTotal.suspicious ?? 0} suspicious ·
+                        {" "}{file.virusTotal.harmless ?? 0} harmless · {file.virusTotal.undetected ?? 0} undetected
+                      </p>
+                      {file.virusTotal.scanDate &&
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Last analysis: {new Date(file.virusTotal.scanDate * 1000).toLocaleString()}
+                        </p>}
+                      <p className="mt-2 text-xs text-zinc-500">
+                        No detections do not guarantee that a file is safe.
+                      </p>
+                    </> :
+                    <p className="mt-2 text-sm text-zinc-500">
+                      No cached reputation report is available yet.
+                    </p>}
+                  <a className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 underline
+                    underline-offset-2 dark:text-emerald-300"
+                    target="_blank" rel="noopener noreferrer"
+                    href={"https://www.virustotal.com/gui/file/" + file.checksums.sha256 + "/detection"}>
+                    View on VirusTotal <ExternalLink size={15} aria-hidden="true" />
+                  </a>
+                </section>}
                 <div className="mt-8 border-t border-zinc-200 dark:border-white/10 pt-7">
                   <Button className="w-full" disabled={downloadBusy} onClick={() => void download()}>
                     <ArrowDownToLine size={17}/>{downloadBusy ? "Preparing download…" : "Download file"}

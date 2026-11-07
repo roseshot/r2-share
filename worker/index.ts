@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { monitorUpload } from "./integrity";
 import { previewFormat } from "../src/preview-types";
 import { parseByteRange } from "./ranges";
-import { getVirusTotalReport } from "./virustotal";
+import { getCachedVirusTotalReport, processVirusTotalQueue } from "./virustotal";
 import { generatePlaceholderShare } from "./placeholder-share";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Bindings, FileRecord, ShareRecord, Mode, StorageConfig } from "./model";
@@ -95,8 +95,10 @@ app.get("/api/files/:id", async c => {
     if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
     return c.json({ id: share.id, mode: "protected" });
   }
+  const hasChecksum = validChecksums(record.checksums);
   return c.json({ id: share.id, filename: record.filename, size: record.size, mime: record.mime,
-    ...(validChecksums(record.checksums) ? { checksums: record.checksums } : {}),
+    ...(hasChecksum ? { checksums: record.checksums,
+      virusTotal: await getCachedVirusTotalReport(c.env, record.checksums.sha256) } : {}),
     ...(record.originalModifiedAt ? { originalModifiedAt: record.originalModifiedAt } : {}),
     mode: share.mode });
 });
@@ -579,7 +581,7 @@ app.get("/:entry/api/files/:id/virustotal", async c => {
   if (!validChecksums(record.checksums)) {
     return c.json({ status: "unavailable", reason: "No verified SHA-256 for this file" });
   }
-  return c.json(await getVirusTotalReport(record.checksums.sha256, c.env.VIRUSTOTAL_API_KEY));
+  return c.json(await getCachedVirusTotalReport(c.env, record.checksums.sha256));
 });
 
 function validShareLabel(value: unknown): value is string {
@@ -798,6 +800,9 @@ export default {
   async scheduled(controller: ScheduledController, env: Bindings): Promise<void> {
     const configured = await resolveBindings(env);
     if (!await readAppSettings(env)) return;
-    if (controller.cron === "0 */6 * * *") await cleanupExpired(configured);
+    if (controller.cron === "0 */6 * * *") {
+      await cleanupExpired(configured);
+      await processVirusTotalQueue(configured);
+    }
   }
 } satisfies ExportedHandler<Bindings>;

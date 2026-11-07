@@ -33,7 +33,7 @@ type StorageUsage = {
 };
 
 type VirusTotalReport = {
-  status: "found" | "not_found" | "not_configured" | "rate_limited" | "unavailable";
+  status: "found" | "pending" | "not_found" | "not_configured" | "rate_limited" | "unavailable";
   reason?: string;
   malicious?: number;
   suspicious?: number;
@@ -47,6 +47,7 @@ function virusTotalSummary(report: VirusTotalReport): string {
   switch (report.status) {
     case "found":
       return `VirusTotal: ${report.malicious ?? 0} malicious, ${report.suspicious ?? 0} suspicious, ${report.harmless ?? 0} harmless, ${report.undetected ?? 0} undetected. No detections does not guarantee safety.`;
+    case "pending": return "Report pending. The Worker checks queued hashes every 6 hours.";
     case "not_found": return "VirusTotal has no report for this SHA-256.";
     case "not_configured": return "Set a VirusTotal API key in Application settings to enable lookups.";
     case "rate_limited": return "VirusTotal rate limit reached. Try again later.";

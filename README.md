@@ -11,7 +11,7 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 - Revoke or update one link without affecting other links or duplicating the stored object.
 - Keep file retention separate from link expiration; manage file deletion independently.
 - Download any supported file or preview images, PDFs, text, audio, and video in the browser. Archive files (ZIP, TAR, TGZ, etc.) are download-only; their contents are not parsed or previewed.
-- Verify uploaded content with Worker-computed **SHA-256**; optionally look up the hash on VirusTotal.
+- Verify uploaded content with Worker-computed **SHA-256**; queue VirusTotal hash reputation lookups on upload and display saved reports on public shares.
 - Apply database changes through versioned SQL migrations.
 
 The Worker handles authorization and streams files from private S3-compatible buckets. Storage credentials remain server-side.
@@ -219,7 +219,26 @@ A link can be **Public** (anyone with the URL) or **Access code protected**. Acc
 
 Supported expiration choices are **Never**, **1 hour**, **24 hours**, **3 days**, and **7 days**. A share's expiration immediately blocks access through that link but does **not** delete the file or affect sibling links. File expiration blocks all links and the scheduled cleanup later deletes the file object. New uploads have no file expiration unless an administrator changes it.
 
-VirusTotal integration is optional. The lookup sends the file's **SHA-256 hash**, not its contents; it is a reputation check, **not an antivirus scan or guarantee of safety**.
+VirusTotal integration is optional. Successful uploads (including public-upload
+pages) queue their verified **SHA-256** in D1. The existing six-hour cron
+processes at most **four distinct hashes per run**, sending only SHA-256 values
+to VirusTotal (never file bytes or share URLs). Missing reports, temporary
+failures, and API throttling stay queued and retry on a later cron; no API
+key means the queue remains idle. A successful report is stored in D1 permanently
+and is never requested again for that hash, including when another identical
+file is uploaded. Existing files with verified hashes are queued once by the
+additive migration.
+
+Public share pages show a stored VirusTotal summary below SHA-256 when available,
+plus a **View on VirusTotal** link that opens the external report in a new tab.
+A missing cached report shows a neutral pending message; opening a share,
+including a placeholder share, **never calls the VirusTotal API**. Protected
+shares reveal reputation details only after the access code is accepted.
+The administrator VirusTotal button reads D1 only; it no longer triggers a live
+lookup. A successful report persists even if its original file is removed,
+avoiding future duplicate lookups. Neither "0 malicious" nor a missing report
+proves a file is safe: VirusTotal is a reputation check, **not an antivirus
+scan or a guarantee of safety**.
 
 ## Notifications and confirmations
 
@@ -251,6 +270,8 @@ D1 holds six tables:
 | `upload_sessions` | In-progress upload reservations associated with a storage ID |
 | `app_settings` | Encrypted storage configurations and optional VirusTotal key |
 | `storage_usage` | Cleanup-recalculated bytes and file counts per configured Storage ID |
+| `virustotal_queue` | Pending SHA-256 reputation lookups and six-hour retries |
+| `virustotal_reports` | Permanent successful VirusTotal summaries, keyed by SHA-256 |
 | `public_upload_pages` | Public uploader links, expiry dates and completed-upload quotas |
 
 Versioned migrations:
@@ -261,6 +282,7 @@ Versioned migrations:
 | `migrations/0002_file_shares.sql` | Adds `shares` and migrates existing single-link settings into the first share |
 | `migrations/0003_share_labels.sql` | Adds optional admin-only names without changing share URLs or access settings |
 | `migrations/0004_storage_usage.sql` | Adds the cleanup-generated per-storage usage snapshot table |
+| `migrations/0006_virustotal_queue.sql` | Adds the persistent VirusTotal queue and report cache; queues existing checksums |
 | `migrations/0005_public_upload_pages.sql` | Adds public uploader limits and associates upload reservations with pages |
 
 The `0002` migration preserves existing links' **IDs/URLs, access codes, and expiry**. File metadata retains compatibility fields from the initial schema; the `shares` table is authoritative for link access.
@@ -351,7 +373,7 @@ apply to HEAD and partial requests.
 
 - **Private buckets and least-privilege credentials:** grant only required bucket/object operations; do not expose B2/R2/AWS S3 credentials to the browser.
 - **Access scope:** public links are bearer URLs; anyone with a valid public URL can access its file. Share links are not user accounts, and an access code is not end-to-end encryption.
-- **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**, then refreshes the D1 `storage_usage` snapshot; large deletion backlogs require subsequent runs.
+- **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**, refreshes the D1 `storage_usage` snapshot, and processes up to **4 pending VirusTotal hashes**; large deletion backlogs require subsequent runs.
 - **Data deletion:** file deletion targets the recorded storage ID and its
 `tuckbox/<file-uuid>` object (or `files/<legacy-id>` for existing records).
 It does not enumerate or purge unrelated bucket objects.
