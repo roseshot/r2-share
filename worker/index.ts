@@ -564,7 +564,7 @@ app.put("/:entry/api/uploads/:id", async c => {
     await finishUpload(c.env, record, token.shareId as string);
     return c.json({ file: serialize(record, [{
       id: token.shareId as string, fileId: record.id, mode: record.mode, revision: record.revision,
-      encryptedCode: record.encryptedCode, expiresAt: record.shareExpiresAt,
+      showVirusTotal: false, encryptedCode: record.encryptedCode, expiresAt: record.shareExpiresAt,
       createdAt: record.createdAt,
     }]) });
   } catch (error) {
