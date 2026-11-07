@@ -654,6 +654,7 @@ export default function Admin() {
             <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Badge variant="muted">{record.storageId}</Badge>
                   {editId === record.id && editKind === "name" ? (
                     <form onSubmit={updateRecord} aria-label={"Rename " + record.filename}
                       className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -676,7 +677,6 @@ export default function Admin() {
                       aria-label={"Rename " + record.filename} title="Click to rename"
                       onClick={() => beginEdit(record, "name")}>{record.filename}</button>
                   )}
-                  <Badge variant="muted">{record.storageId}</Badge>
                 </div>
                 <p className="mt-2 text-xs text-zinc-500">{sizeText(record.size)} · {new Date(record.createdAt).toLocaleString("en-US")}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-zinc-600 dark:text-zinc-400">

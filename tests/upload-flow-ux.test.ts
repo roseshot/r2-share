@@ -78,7 +78,11 @@ describe("upload completion experience", () => {
     expect(cards.match(/Saving…" : "Save"/g)).toHaveLength(1);
     expect(cards).not.toContain(">Settings</Button>");
     expect(cards).not.toContain("mt-5 space-y-4 rounded-xl");
-    expect(cards.indexOf('<Input id="edit-filename"')).toBeLessThan(cards.indexOf('<Badge variant="muted">'));
+    const badge = cards.indexOf('<Badge variant="muted">{record.storageId}</Badge>');
+    expect(badge).toBeGreaterThanOrEqual(0);
+    expect(badge).toBeLessThan(cards.indexOf('editId === record.id && editKind === "name"'));
+    expect(badge).toBeLessThan(cards.indexOf('<Input id="edit-filename"'));
+    expect(badge).toBeLessThan(cards.indexOf('aria-label={"Rename " + record.filename} title="Click to rename"'));
     expect(cards.indexOf('<Select id="edit-file-expiration"')).toBeLessThan(cards.indexOf('<AdminShares'));
     expect(admin).toContain('jsonBody({ filename: name })');
     expect(admin).toContain('jsonBody({ fileExpiresIn: seconds })');
