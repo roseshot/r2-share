@@ -135,11 +135,15 @@ jumps to the setup form.
 After upload, a file receives one initial share link. Its link ID matches the file ID; further links get independent random 16-character IDs.
 
 In **File management**, click the **file name** to rename it, or click **File deletion**
-to set a specific local date and time (or **Never**). Changes take effect only after
-clicking **Save**; Cancel leaves the record unchanged. Renaming changes D1 display
-metadata and the download filename, not the object storage key or existing share URLs.
-The file deletion date applies to the file and its links, but editing it does
-**not change any individual Share Link expiration**.
+to change the file's **relative deletion period**: **Never**, **1 hour**, **24 hours**,
+**3 days**, or **7 days**. The current remaining time is shown as a relative duration.
+The countdown starts when the new period is saved, not when the file was uploaded.
+The **Keep unchanged** option preserves the existing deletion deadline. Changes only
+take effect after **Save**; Cancel leaves the record unchanged.
+
+Renaming changes D1 display metadata and the download filename, not the object storage
+key or existing share URLs. A file's expiration blocks access through all of its links
+when reached, but editing it **does not change any individual Share Link expiration**.
 
 In **File management**, use:
 

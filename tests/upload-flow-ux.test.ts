@@ -59,16 +59,23 @@ describe("upload completion experience", () => {
     expect(paste).toContain("Array.from(clipboard.files)");
   });
 
-  test("requires Save for filename and file deletion date edits", () => {
+  test("requires Save for renaming and relative file deletion periods", () => {
     const admin = source("src/admin.tsx");
     const worker = source("worker/index.ts");
     expect(admin).toContain('beginEdit(record, "name")');
     expect(admin).toContain('beginEdit(record, "expiration")');
     expect(admin).toContain('updates.filename = name');
-    expect(admin).toContain('updates.fileExpiresAt = date?.toISOString() ?? null');
+    expect(admin).toContain('updates.fileExpiresIn = editFileDuration');
+    expect(admin).toContain('setEditFileDuration(-1)');
+    expect(admin).toContain('label: "Keep unchanged"');
+    expect(admin).toContain('duration.label + " (from save)"');
+    expect(admin).toContain("Delete file after");
+    expect(admin).toContain("File deletion: {timeText(record.fileExpiresAt)}");
+    expect(admin).not.toContain('type="datetime-local"');
     expect(admin).toContain("Save");
     expect(worker).toContain('record.filename = (body.filename as string).trim()');
-    expect(worker).toContain('record.expiresAt = body.fileExpiresAt as string | null');
+    expect(worker).toContain('record.expiresAt = expirationDate(body.fileExpiresIn as number)');
+    expect(worker).not.toContain('"fileExpiresAt"');
   });
 
   test("shows processing state without suggesting a completed upload", () => {

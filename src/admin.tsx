@@ -84,8 +84,7 @@ export default function Admin() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editKind, setEditKind] = useState<"name" | "expiration">("name");
   const [editFilename, setEditFilename] = useState("");
-  const [editFileExpiresAt, setEditFileExpiresAt] = useState("");
-  const [editNeverExpires, setEditNeverExpires] = useState(true);
+  const [editFileDuration, setEditFileDuration] = useState(-1);
   const [saving, setSaving] = useState(false);
   const [vtLoading, setVtLoading] = useState<string | null>(null);
   const [vtResults, setVtResults] = useState<Record<string, VirusTotalReport>>({});
@@ -338,21 +337,14 @@ export default function Admin() {
     setEditId(record.id);
     setEditKind(kind);
     setEditFilename(record.filename);
-    setEditNeverExpires(record.fileExpiresAt === null);
-    if (record.fileExpiresAt) {
-      const date = new Date(record.fileExpiresAt);
-      setEditFileExpiresAt(new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-        .toISOString().slice(0, 16));
-    } else {
-      setEditFileExpiresAt("");
-    }
+    setEditFileDuration(-1); // The existing expiry is preserved until a new duration is saved.
     setError("");
   }
 
   async function updateRecord(event: FormEvent) {
     event.preventDefault();
     if (!editId) return;
-    const updates: { filename?: string; fileExpiresAt?: string | null } = {};
+    const updates: { filename?: string; fileExpiresIn?: number } = {};
     if (editKind === "name") {
       const name = editFilename.trim();
       if (!name || name.length > 240 || /[\x00-\x1f\x7f]/.test(name)) {
@@ -361,12 +353,11 @@ export default function Admin() {
       }
       updates.filename = name;
     } else {
-      const date = editNeverExpires ? null : new Date(editFileExpiresAt);
-      if (date !== null && (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now())) {
-        setError("Choose a future deletion date or Never");
+      if (!durations.some(duration => duration.seconds === editFileDuration)) {
+        setError("Choose a deletion period or Never");
         return;
       }
-      updates.fileExpiresAt = date?.toISOString() ?? null;
+      updates.fileExpiresIn = editFileDuration;
     }
     setSaving(true); setError("");
     try {
@@ -375,7 +366,7 @@ export default function Admin() {
       });
       setVtResults(previous => { const next = { ...previous }; delete next[editId]; return next; });
       setEditId(null); await refresh();
-      successToast(editKind === "name" ? "File renamed" : "File deletion date updated");
+      successToast(editKind === "name" ? "File renamed" : "File deletion period updated");
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
   }
@@ -661,12 +652,10 @@ export default function Admin() {
                 <p className="mt-2 text-xs text-zinc-500">{sizeText(record.size)} · {new Date(record.createdAt).toLocaleString("en-US")}</p>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-400">
                   <button type="button" className="text-left underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-2 focus-visible:outline-emerald-400"
-                    aria-label={"Edit file deletion date for " + record.filename}
-                    title="Click to change deletion date"
+                    aria-label={"Edit file deletion period for " + record.filename}
+                    title="Click to change deletion period"
                     onClick={() => beginEdit(record, "expiration")}>
-                    File deletion: {record.fileExpiresAt
-                      ? new Date(record.fileExpiresAt).toLocaleString() + " (" + timeText(record.fileExpiresAt) + ")"
-                      : "Never"}
+                    File deletion: {timeText(record.fileExpiresAt)}
                   </button>
                 </div>
 
@@ -693,7 +682,7 @@ export default function Admin() {
               className="mt-5 space-y-4 rounded-xl border border-zinc-200 bg-zinc-100/80 p-4 dark:border-white/10 dark:bg-black/20"
               onSubmit={updateRecord}>
               <h3 className="text-sm font-semibold">
-                {editKind === "name" ? "Rename file" : "File deletion date"}
+                {editKind === "name" ? "Rename file" : "File deletion period"}
               </h3>
               {editKind === "name" ? <>
                 <label htmlFor="edit-filename" className="block text-xs text-zinc-600 dark:text-zinc-400">
@@ -703,25 +692,25 @@ export default function Admin() {
                   onChange={event => setEditFilename(event.target.value)} />
                 <p className="text-xs text-zinc-500">Only the displayed file name changes; existing share URLs stay the same.</p>
               </> : <>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={editNeverExpires}
-                    onChange={event => setEditNeverExpires(event.target.checked)} />
-                  Never delete automatically
+                <label htmlFor="edit-file-expiration" className="block text-xs text-zinc-600 dark:text-zinc-400">
+                  Delete file after
                 </label>
-                {!editNeverExpires && <div>
-                  <label htmlFor="edit-file-expiration" className="mb-2 block text-xs text-zinc-600 dark:text-zinc-400">
-                    Delete file on
-                  </label>
-                  <Input id="edit-file-expiration" type="datetime-local" required
-                    value={editFileExpiresAt} onChange={event => setEditFileExpiresAt(event.target.value)} />
-                  <p className="mt-2 text-xs text-zinc-500">
-                    Uses your local time. Expired files are removed by scheduled cleanup.
-                  </p>
-                </div>}
-                <p className="text-xs text-zinc-500">Share link expiration settings are unchanged.</p>
+                <Select id="edit-file-expiration" value={String(editFileDuration)}
+                  onValueChange={value => setEditFileDuration(Number(value))}
+                  options={[
+                    { value: "-1", label: "Keep unchanged" },
+                    ...durations.map(duration => ({
+                      value: String(duration.seconds),
+                      label: duration.seconds === 0 ? "Never" : duration.label + " (from save)",
+                    })),
+                  ]} />
+                <p className="text-xs text-zinc-500">
+                  The countdown starts when you save. Expired files are removed by scheduled cleanup.
+                  Share link expiration settings are unchanged.
+                </p>
               </>}
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" size="sm" disabled={saving || (editKind === "expiration" && !editNeverExpires && !editFileExpiresAt)}>
+                <Button type="submit" size="sm" disabled={saving || (editKind === "expiration" && editFileDuration < 0)}>
                   {saving ? "Saving…" : "Save"}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditId(null)}>Cancel</Button>
