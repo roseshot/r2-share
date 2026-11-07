@@ -83,7 +83,7 @@ describe("encrypted storage configurations", () => {
     const app = fixture();
     const cookie = await app.login();
     const empty = await app.request("/private/api/settings", { headers: { Cookie: cookie } });
-    expect(await empty.json()).toEqual({ storages: [], virusTotalEnabled: false });
+    expect(await empty.json()).toEqual({ storages: [], storageUsage: [], virusTotalEnabled: false });
     for (const storage of [b2, b2Other, r2, r2Other]) {
       const response = await app.post("/settings/storages", storage, cookie);
       expect(response.status).toBe(201);
@@ -154,6 +154,6 @@ describe("encrypted storage configurations", () => {
     expect((await app.post("/settings", { virusTotalApiKey: "new-key" }, cookie, "PATCH")).status)
       .toBe(200);
     const current = await app.request("/private/api/settings", { headers: { Cookie: cookie } });
-    expect(await current.json()).toEqual({ storages: [], virusTotalEnabled: true });
+    expect(await current.json()).toEqual({ storages: [], storageUsage: [], virusTotalEnabled: true });
   });
 });

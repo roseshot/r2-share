@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { b64, signToken } from "../worker/crypto";
-import { bindTestSettings } from "../worker/app-config";
+import { bindTestSettings, saveAppSettings } from "../worker/app-config";
 import { bindObjectStore, getObjectStore, r2ObjectUrl } from "../worker/object-store";
 import { cleanupExpired, getRecord, getStorageUsage, saveRecord } from "../worker/storage";
 import { createTestDatabase } from "./d1-helper";
@@ -129,6 +129,7 @@ describe("multiple object storage IDs", () => {
 
   test("persists separate storage usage snapshots after cleanup, independent of pagination", async () => {
     const app = fixture();
+    await saveAppSettings(app.env, { storages });
     const first = await app.upload("b2-alpha", "hello");
     const second = await app.upload("b2-alpha", "world!");
     const third = await app.upload("r2-beta", "four");
