@@ -150,6 +150,79 @@ describe("unavailable share presentation", () => {
     expect(first).not.toBe(second);
   });
 
+  test("reuses the same cached placeholder after repeated 404 responses", async () => {
+    const entries = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => { entries.set(key, value); },
+      removeItem: (key: string) => { entries.delete(key); },
+    };
+    let requests = 0;
+    async function missing(): Promise<Share> {
+      requests++;
+      throw new RequestError("File not found", 404);
+    }
+    const first = await loadShareDetails(id, missing, storage);
+    const second = await loadShareDetails(id, missing, storage);
+    expect(first.isPlaceholder).toBe(true);
+    expect(second).toEqual(first);
+    expect(requests).toBe(2);
+    expect(entries.size).toBe(1);
+    expect([...entries.keys()][0]).toContain(id);
+
+    const other = await loadShareDetails("AnotherMissingID", missing, storage);
+    expect(other.file.id).toBe("AnotherMissingID");
+    expect(entries.size).toBe(2);
+    expect((await loadShareDetails(id, missing, storage)).file).toEqual(first.file);
+  });
+
+  test("uses real metadata and clears a cached placeholder when a share becomes available", async () => {
+    const entries = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => { entries.set(key, value); },
+      removeItem: (key: string) => { entries.delete(key); },
+    };
+    await loadShareDetails(id, async () => { throw new RequestError("Missing", 404); }, storage);
+    expect(entries.size).toBe(1);
+    const real: Share = { id, mode: "public", filename: "actual-file.pdf", size: 13579 };
+    expect(await loadShareDetails(id, async () => real, storage)).toEqual({
+      file: real, isPlaceholder: false,
+    });
+    expect(entries.size).toBe(0);
+  });
+
+  test("ignores invalid or inaccessible browser cache data", async () => {
+    const entries = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => { entries.set(key, value); },
+      removeItem: (key: string) => { entries.delete(key); },
+    };
+    const load = async (): Promise<Share> => { throw new RequestError("Missing", 404); };
+    const original = await loadShareDetails(id, load, storage);
+    const key = [...entries.keys()][0];
+    entries.set(key, "{corrupt json");
+    const recovered = await loadShareDetails(id, load, storage);
+    expect(recovered.isPlaceholder).toBe(true);
+    expect(JSON.parse(entries.get(key)!)?.id).toBe(id);
+    entries.set(key, JSON.stringify({ ...original.file, id: "WrongId" }));
+    const validated = await loadShareDetails(id, load, storage);
+    expect(validated.file.id).toBe(id);
+    entries.set(key, JSON.stringify({ ...original.file, size: Number.MAX_SAFE_INTEGER }));
+    const limited = await loadShareDetails(id, load, storage);
+    expect(limited.file.size).toBeLessThan(1024 ** 4);
+
+    const blocked = {
+      getItem: (_key: string): string | null => { throw new Error("Storage blocked"); },
+      setItem: (_key: string, _value: string): void => { throw new Error("Storage blocked"); },
+      removeItem: (_key: string): void => { throw new Error("Storage blocked"); },
+    };
+    expect((await loadShareDetails(id, load, blocked)).isPlaceholder).toBe(true);
+    const real: Share = { id, mode: "public" };
+    expect((await loadShareDetails(id, async () => real, blocked)).file).toBe(real);
+  });
+
   test("keeps other HTTP and network errors visible", async () => {
     for (const error of [new RequestError("Unavailable", 503), new Error("Network error")]) {
       await expect(loadShareDetails(id, async () => { throw error; })).rejects.toBe(error);
