@@ -35,12 +35,12 @@ describe("unavailable share presentation", () => {
   test("uses familiar filenames consistent with the file type and date", () => {
     const values = new Uint32Array(12);
     const expected = [
-      ["Project Proposal.pdf", /^Annual Report \\d{4}\\.pdf$/],
-      [/^IMG_\\d{8}_\\d{6}\\.jpg$/, "Beach Sunset.jpg"],
-      [/^Website Backup \\d{4}-\\d{2}-\\d{2}\\.zip$/, /^Family Photos \\d{4}\\.zip$/],
-      [/^Meeting Notes \\d{4}-\\d{2}-\\d{2}\\.txt$/, "Shopping List.txt"],
-      [/^Screen Recording \\d{4}-\\d{2}-\\d{2}\\.mp4$/, "Birthday Party.mp4"],
-      [/^Monthly Budget \\d{4}-\\d{2}\\.xlsx$/, /^Expense Report \\d{4}\\.xlsx$/],
+      ["Project Proposal.pdf", /^Annual Report \d{4}\.pdf$/],
+      [/^IMG_\d{8}_\d{6}\.jpg$/, "Beach Sunset.jpg"],
+      [/^Website Backup \d{4}-\d{2}-\d{2}\.zip$/, /^Family Photos \d{4}\.zip$/],
+      [/^Meeting Notes \d{4}-\d{2}-\d{2}\.txt$/, "Shopping List.txt"],
+      [/^Screen Recording \d{4}-\d{2}-\d{2}\.mp4$/, "Birthday Party.mp4"],
+      [/^Monthly Budget \d{4}-\d{2}\.xlsx$/, /^Expense Report \d{4}\.xlsx$/],
     ] as const;
     const extensions = ["pdf", "jpg", "zip", "txt", "mp4", "xlsx"];
     const sizes = [
