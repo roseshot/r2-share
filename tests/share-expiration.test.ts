@@ -205,7 +205,9 @@ describe("independent file and share expiration", () => {
     entry.shareExpiresAt = new Date(Date.now() - 1000).toISOString();
     await saveRecord(app.env, entry);
 
-    for (const path of ["/" + id, "/api/files/" + id, "/api/files/" + id + "/download"]) {
+    const expiredPage = await app.request("/" + id, { headers: { Cookie: cookie } });
+    expect(expiredPage.status).toBe(200); // Branded unavailable page renders first.
+    for (const path of ["/api/files/" + id, "/api/files/" + id + "/download"]) {
       const response = await app.request(path, { headers: { Cookie: cookie } });
       expect(response.status).toBe(404);
       expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
@@ -213,8 +215,10 @@ describe("independent file and share expiration", () => {
     }
     await deleteRecord(app.env, id);
     const deleted = await app.request("/" + id, { headers: { Cookie: cookie } });
-    expect(deleted.status).toBe(404);
-    expect(deleted.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    expect(deleted.status).toBe(200);
+    const deletedMetadata = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
+    expect(deletedMetadata.status).toBe(404);
+    expect(deletedMetadata.headers.get("Set-Cookie")).toContain("Max-Age=0");
   });
 
   test("invalidates an existing share authorization after settings change", async () => {
@@ -387,7 +391,8 @@ describe("independent file and share expiration", () => {
       shareExpiresAt: new Date(Date.now() - 1000).toISOString(),
     }));
     app.objects.set(dataKey(id), "secret");
-    for (const path of ["/" + id, "/api/files/" + id, "/api/files/" + id + "/download"]) {
+    expect((await app.request("/" + id)).status).toBe(200);
+    for (const path of ["/api/files/" + id, "/api/files/" + id + "/download"]) {
       expect((await app.request(path)).status).toBe(404);
     }
     expect(await cleanupExpired(app.env)).toBe(0);
