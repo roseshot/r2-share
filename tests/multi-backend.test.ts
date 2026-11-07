@@ -118,7 +118,12 @@ describe("multiple object storage IDs", () => {
       for (const other of storages.filter(s => s.id !== storage.id)) {
         expect(app.maps[other.id].has(dataKey(id))).toBe(false);
       }
-      expect(await (await app.request("/api/files/" + id + "/download")).text()).toBe(text);
+      const shares = await app.env.DB.prepare("SELECT id FROM shares WHERE file_id = ?").bind(id)
+        .all<{ id: string }>();
+      expect(shares.results).toHaveLength(1);
+      const shareId = shares.results[0].id;
+      expect(shareId).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
+      expect(await (await app.request("/api/files/" + shareId + "/download")).text()).toBe(text);
       const deleted = await app.request("/private/api/files/" + id, {
         method: "DELETE", headers: { Origin: origin, Cookie: await app.cookie() },
       });

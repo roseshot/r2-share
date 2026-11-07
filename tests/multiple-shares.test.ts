@@ -221,7 +221,7 @@ describe("independent multiple share links", () => {
       expect(result.status).toBe(200);
       return result.headers.get("Set-Cookie")!.split(";")[0];
     }
-    const firstCookie = await unlock(fileId, "first-code");
+    const firstCookie = await unlock(primaryId, "first-code");
     const secondCookie = await unlock(secondId, "second-code");
     expect((await app.request("/api/files/" + secondId + "/download", {
       headers: { Cookie: firstCookie },
