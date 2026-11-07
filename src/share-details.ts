@@ -1,25 +1,74 @@
 import { RequestError, requestJson, type Share } from "./lib";
 
-const placeholderFormats = [
-  { prefix: "document", extension: "pdf", mime: "application/pdf" },
-  { prefix: "photo", extension: "jpg", mime: "image/jpeg" },
-  { prefix: "archive", extension: "zip", mime: "application/zip" },
-  { prefix: "notes", extension: "txt", mime: "text/plain" },
-  { prefix: "recording", extension: "mp4", mime: "video/mp4" },
-  { prefix: "spreadsheet", extension: "xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-] as const;
-
-export function createPlaceholderShare(id: string): Share {
-  const values = new Uint32Array(12);
-  crypto.getRandomValues(values);
-  const format = placeholderFormats[values[0] % placeholderFormats.length];
+export function createPlaceholderShare(
+  id: string,
+  values: Uint32Array = crypto.getRandomValues(new Uint32Array(12)),
+): Share {
+  const modifiedAt = new Date(Date.now() - (1 + values[3] % 365) * 86400000).toISOString();
+  const day = modifiedAt.slice(0, 10);
+  const month = day.slice(0, 7);
+  const year = day.slice(0, 4);
+  const time = modifiedAt.slice(11, 19).replaceAll(":", "");
+  const quarter = Math.ceil(Number(day.slice(5, 7)) / 3);
+  const formats = [
+    {
+      mime: "application/pdf", minSize: 16 * 1024, maxSize: 8 * 1024 * 1024,
+      names: [
+        "Project Proposal.pdf", `Annual Report ${year}.pdf`,
+        `Meeting Agenda ${day}.pdf`, "Travel Itinerary.pdf",
+        "User Guide.pdf", `Invoice ${month}.pdf`,
+      ],
+    },
+    {
+      mime: "image/jpeg", minSize: 150 * 1024, maxSize: 10 * 1024 * 1024,
+      names: [
+        `IMG_${day.replaceAll("-", "")}_${time}.jpg`, "Beach Sunset.jpg",
+        "Family Photo.jpg", "Mountain View.jpg",
+        `Vacation Photo ${year}.jpg`, "Garden Flowers.jpg",
+      ],
+    },
+    {
+      mime: "application/zip", minSize: 1024 * 1024, maxSize: 85 * 1024 * 1024,
+      names: [
+        `Website Backup ${day}.zip`, `Family Photos ${year}.zip`,
+        "Project Files.zip", "Design Assets.zip",
+        `Receipts ${year}.zip`, "Travel Photos.zip",
+      ],
+    },
+    {
+      mime: "text/plain", minSize: 1024, maxSize: 64 * 1024,
+      names: [
+        `Meeting Notes ${day}.txt`, "Shopping List.txt",
+        "Project Ideas.txt", "README.txt", "To Do List.txt",
+        "Instructions.txt",
+      ],
+    },
+    {
+      mime: "video/mp4", minSize: 6 * 1024 * 1024, maxSize: 88 * 1024 * 1024,
+      names: [
+        `Screen Recording ${day}.mp4`, "Birthday Party.mp4",
+        `Weekend Trip ${year}.mp4`, "Product Demo.mp4",
+        "Concert Highlights.mp4", "Family Video.mp4",
+      ],
+    },
+    {
+      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      minSize: 12 * 1024, maxSize: 4 * 1024 * 1024,
+      names: [
+        `Monthly Budget ${month}.xlsx`, `Expense Report ${year}.xlsx`,
+        "Inventory List.xlsx", `Sales Summary Q${quarter} ${year}.xlsx`,
+        "Project Schedule.xlsx", "Client Contacts.xlsx",
+      ],
+    },
+  ];
+  const format = formats[values[0] % formats.length];
   return {
     id,
     mode: "public",
-    filename: format.prefix + "-" + values[1].toString(36) + "." + format.extension,
-    size: 1024 + values[2] % (90 * 1024 * 1024 - 1024),
+    filename: format.names[values[1] % format.names.length],
+    size: format.minSize + values[2] % (format.maxSize - format.minSize + 1),
     mime: format.mime,
-    originalModifiedAt: new Date(Date.now() - (1 + values[3] % 365) * 86400000).toISOString(),
+    originalModifiedAt: modifiedAt,
     checksums: {
       sha256: Array.from(values.subarray(4), value => value.toString(16).padStart(8, "0")).join(""),
     },
