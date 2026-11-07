@@ -32,43 +32,61 @@ describe("unavailable share presentation", () => {
     expect(filenames.size).toBeGreaterThan(1);
   });
 
-  test("uses familiar filenames consistent with the file type and date", () => {
-    const values = new Uint32Array(12);
-    const expected = [
-      ["Project Proposal.pdf", /^Annual Report \d{4}\.pdf$/],
-      [/^IMG_\d{8}_\d{6}\.jpg$/, "Beach Sunset.jpg"],
-      [/^Website Backup \d{4}-\d{2}-\d{2}\.zip$/, /^Family Photos \d{4}\.zip$/],
-      [/^Meeting Notes \d{4}-\d{2}-\d{2}\.txt$/, "Shopping List.txt"],
-      [/^Screen Recording \d{4}-\d{2}-\d{2}\.mp4$/, "Birthday Party.mp4"],
-      [/^Monthly Budget \d{4}-\d{2}\.xlsx$/, /^Expense Report \d{4}\.xlsx$/],
-    ] as const;
-    const extensions = ["pdf", "jpg", "zip", "txt", "mp4", "xlsx"];
-    const sizes = [
-      [80 * 1024, 4 * 1024 * 1024],
-      [300 * 1024, 5 * 1024 * 1024],
-      [2 * 1024 * 1024, 40 * 1024 * 1024],
-      [200, 12 * 1024],
-      [8 * 1024 * 1024, 88 * 1024 * 1024],
-      [16 * 1024, 800 * 1024],
+  test("generates everyday filenames with camera, date, version, and duplicate conventions", () => {
+    const samples = [
+      { extension: "pdf", mime: "application/pdf", min: 80 * 1024, max: 4 * 1024 * 1024 },
+      { extension: "jpg", mime: "image/jpeg", min: 300 * 1024, max: 5 * 1024 * 1024 },
+      { extension: "zip", mime: "application/zip", min: 2 * 1024 * 1024, max: 40 * 1024 * 1024 },
+      { extension: "txt", mime: "text/plain", min: 200, max: 12 * 1024 },
+      { extension: "mp4", mime: "video/mp4", min: 8 * 1024 * 1024, max: 88 * 1024 * 1024 },
+      { extension: "xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        min: 16 * 1024, max: 800 * 1024 },
     ];
-    for (let category = 0; category < expected.length; category++) {
+    const values = new Uint32Array(12);
+    const variants = 10;
+    for (let category = 0; category < samples.length; category++) {
+      const format = samples[category];
       values[0] = category;
-      for (let variant = 0; variant < 6; variant++) {
+      for (let variant = 0; variant < variants; variant++) {
         values[1] = variant;
+        values[4] = variant * 31;
+        values[5] = variant * 7;
         const file = createPlaceholderShare(id, values);
-        expect(file.filename?.endsWith("." + extensions[category])).toBe(true);
-        expect(file.size).toBeGreaterThanOrEqual(sizes[category][0]);
-        expect(file.size).toBeLessThanOrEqual(sizes[category][1]);
-        if (variant < 2) {
-          const pattern = expected[category][variant];
-          if (typeof pattern === "string") expect(file.filename).toBe(pattern);
-          else expect(file.filename).toMatch(pattern);
-        }
+        expect(file.mime).toBe(format.mime);
+        expect(file.filename?.endsWith("." + format.extension)).toBe(true);
+        expect(file.filename).not.toContain("undefined");
+        expect(file.filename).not.toContain("/");
+        expect(file.filename).not.toContain("\\");
+        expect(file.filename).not.toMatch(/[<>:"|?*]/);
+        expect(file.size).toBeGreaterThanOrEqual(format.min);
+        expect(file.size).toBeLessThanOrEqual(format.max);
       }
       values[2] = 0xffffffff;
-      expect(createPlaceholderShare(id, values).size).toBeLessThanOrEqual(sizes[category][1]);
+      expect(createPlaceholderShare(id, values).size).toBeLessThanOrEqual(format.max);
       values[2] = 0;
     }
+    values[0] = 1;
+    values[1] = 0;
+    values[4] = 287;
+    expect(createPlaceholderShare(id, values).filename).toBe("IMG_1287.jpg");
+    values[1] = 2;
+    expect(createPlaceholderShare(id, values).filename).toMatch(/^PXL_\d{8}_\d{9}\.jpg$/);
+    values[0] = 0;
+    values[1] = 3;
+    expect(createPlaceholderShare(id, values).filename).toMatch(/proposal v[2-5]\.pdf$/);
+    values[0] = 3;
+    values[1] = 4;
+    expect(createPlaceholderShare(id, values).filename).toMatch(/\(1\)\.txt$/);
+  });
+
+  test("varies the subject inside the same filename pattern", () => {
+    const values = new Uint32Array(12);
+    values[0] = 4;
+    values[1] = 2;
+    const first = createPlaceholderShare(id, values).filename;
+    values[4] = 1;
+    const second = createPlaceholderShare(id, values).filename;
+    expect(first).not.toBe(second);
   });
 
   test("keeps other HTTP and network errors visible", async () => {
