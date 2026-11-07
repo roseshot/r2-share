@@ -94,6 +94,20 @@ describe("upload completion experience", () => {
     expect(worker).not.toContain('"fileExpiresAt"');
   });
 
+  test("hides the VirusTotal submit action immediately and on later admin list refreshes", () => {
+    const admin = source("src/admin.tsx");
+    const worker = source("worker/index.ts");
+    const cards = admin.slice(admin.indexOf("{files.map(record =>"),
+      admin.indexOf('<nav aria-label="File pages"'));
+    expect(cards).toContain("{record.canSubmitToVirusTotal && <Button");
+    expect(cards).toContain("Submit to VirusTotal");
+    expect(admin).toContain("setFiles(previous => previous.map(file =>");
+    expect(admin).toContain("canSubmitToVirusTotal: false");
+    expect(worker).toContain("availableHashes.has(record.checksums.sha256)");
+    expect(worker).toContain("q.upload_file_id IS NULL AND q.upload_submitted_at IS NULL");
+    expect(worker).toContain("virustotal_reports r WHERE r.sha256 = q.sha256");
+  });
+
   test("shows processing state without suggesting a completed upload", () => {
     const admin = source("src/admin.tsx");
     expect(admin).toContain("xhr.upload.onprogress");

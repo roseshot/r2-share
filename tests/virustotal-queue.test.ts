@@ -261,6 +261,65 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(0);
   });
 
+  test("admin file list persists VirusTotal button eligibility across authorization and deletion", async () => {
+    const app = setup();
+    const first = await app.upload("identical-content-to-authorize");
+    const second = await app.upload("identical-content-to-authorize");
+    const unrelated = await app.upload("unrelated-hash-to-authorize");
+    const list = async () => {
+      const response = await app.request("/secret-admin/api/files", {
+        headers: { Cookie: await app.cookie() },
+      });
+      expect(response.status).toBe(200);
+      const json = await response.json() as {
+        files: { id: string; canSubmitToVirusTotal: boolean }[];
+      };
+      return new Map(json.files.map(file => [file.id, file.canSubmitToVirusTotal]));
+    };
+    const initial = await list();
+    expect(initial.get(first.id)).toBe(true);
+    expect(initial.get(second.id)).toBe(true);
+    expect(initial.get(unrelated.id)).toBe(true);
+
+    // Giving consent for one file must hide the button for that SHA-256 on
+    // every copy, since a second consent would otherwise return HTTP 409.
+    const submit = await app.request(
+      "/secret-admin/api/files/" + first.id + "/virustotal/upload", {
+        method: "POST", headers: { Cookie: await app.cookie(), Origin: origin },
+      });
+    expect(submit.status).toBe(200);
+    expect(await submit.json()).toEqual({ status: "authorized" });
+    const authorized = await list();
+    expect(authorized.get(first.id)).toBe(false);
+    expect(authorized.get(second.id)).toBe(false);
+    expect(authorized.get(unrelated.id)).toBe(true);
+
+    // Removing the approved file revokes its file-specific authorization.
+    await deleteRecord(app.env, first.id);
+    const revoked = await list();
+    expect(revoked.has(first.id)).toBe(false);
+    expect(revoked.get(second.id)).toBe(true);
+    expect(revoked.get(unrelated.id)).toBe(true);
+
+    const reauthorized = await app.request(
+      "/secret-admin/api/files/" + second.id + "/virustotal/upload", {
+        method: "POST", headers: { Cookie: await app.cookie(), Origin: origin },
+      });
+    expect(reauthorized.status).toBe(200);
+    expect((await list()).get(second.id)).toBe(false);
+
+    // Submitting the approved file and later caching the analysis should
+    // never restore the Submit button, even after the queue row disappears.
+    await app.env.DB.prepare(
+      "UPDATE virustotal_queue SET upload_submitted_at = ? WHERE sha256 = ?"
+    ).bind(Date.now(), second.sha256).run();
+    expect((await list()).get(second.id)).toBe(false);
+    expect(await processVirusTotalQueue(app.env, undefined,
+      async () => resultJson(), Date.now() + 6 * 3600000)).toBe(1);
+    expect((await list()).get(second.id)).toBe(false);
+    expect((await list()).get(unrelated.id)).toBe(true);
+  });
+
   test("only an authenticated administrator can authorize one file for submission", async () => {
     const app = setup();
     const file = await app.upload("authorized-sample");

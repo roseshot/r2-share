@@ -32,6 +32,8 @@ export type ManagedShare = {
 export type ManagedFile = Omit<Share, "mode"> & {
   storageId: string;
   shares: ManagedShare[];
+  /** Admin-only permission to submit file bytes for VirusTotal analysis. */
+  canSubmitToVirusTotal: boolean;
   filename: string;
   size: number;
   mime: string;

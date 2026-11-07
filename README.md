@@ -266,8 +266,11 @@ shares reveal reputation details only after the access code is accepted.
 The administrator VirusTotal button reads D1 only; it no longer triggers a live
 lookup. Administrators can explicitly select **Submit to VirusTotal** for one
 file and confirm a warning that VirusTotal may share the complete submitted
-sample with other parties. This records authorization in D1 for that **file ID
-only**. On the next six-hour job, the Worker checks SHA-256 first; only if no
+sample with other parties. The **Submit to VirusTotal** button disappears
+immediately after authorization and remains hidden after page refresh or sign-in
+when that SHA-256 is authorized, submitted, or already has a cached report.
+It also stays hidden for duplicate files with the same SHA-256. This records
+authorization in D1 for that **file ID only**. On the next six-hour job, the Worker checks SHA-256 first; only if no
 report exists will it stream the authorized file's bytes from the private bucket
 to VirusTotal. Files up to 32 MiB use `POST /files`; larger TuckBox files use
 VirusTotal's single-use `/files/upload_url`, restricted to a HTTPS VirusTotal

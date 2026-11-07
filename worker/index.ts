@@ -477,8 +477,27 @@ app.get("/:entry/api/files", async c => {
     page: Number(rawPage), query, storageId, sort,
   });
   const shares = await listSharesForFileIds(c.env, records.map(record => record.id));
-  return c.json({ files: records.map(record =>
-    serialize(record, shares.filter(share => share.fileId === record.id))),
+  // This is a hash-keyed queue: once any file with identical bytes has been
+  // authorized or submitted, no sibling file can be submitted again. Exclude
+  // files with a cached report. This remains correct after a page reload.
+  const hashes = [...new Set(records
+    .filter(record => validChecksums(record.checksums))
+    .map(record => record.checksums!.sha256))];
+  const availableHashes = new Set<string>();
+  if (hashes.length) {
+    const placeholders = hashes.map(() => "?").join(",");
+    const rows = await c.env.DB.prepare(
+      "SELECT q.sha256 FROM virustotal_queue q WHERE q.sha256 IN (" +
+      placeholders + ") AND q.upload_file_id IS NULL AND q.upload_submitted_at IS NULL " +
+      "AND NOT EXISTS (SELECT 1 FROM virustotal_reports r WHERE r.sha256 = q.sha256)"
+    ).bind(...hashes).all<{ sha256: string }>();
+    for (const row of rows.results) availableHashes.add(row.sha256);
+  }
+  return c.json({ files: records.map(record => ({
+    ...serialize(record, shares.filter(share => share.fileId === record.id)),
+    canSubmitToVirusTotal: !!record.checksums &&
+      availableHashes.has(record.checksums.sha256),
+  })),
     total, page, pageSize, hasMore, truncated: hasMore });
 });
 

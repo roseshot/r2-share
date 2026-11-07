@@ -396,6 +396,12 @@ export default function Admin() {
         ? "VirusTotal upload authorized for the next six-hour scan"
         : result.status === "submitted" ? "This sample was already submitted to VirusTotal"
           : "VirusTotal report is already cached");
+      // Hide immediately; the server list also computes the state from D1 so
+      // refreshes and subsequent sign-ins will not restore this button.
+      const sha256 = vtUploadFile.checksums?.sha256;
+      setFiles(previous => previous.map(file =>
+        file.id === vtUploadFile.id || (sha256 && file.checksums?.sha256 === sha256)
+          ? { ...file, canSubmitToVirusTotal: false } : file));
       setVtUploadFile(null);
     } catch (e) {
       setVtUploadError(e instanceof Error ? e.message : "Authorization failed");
@@ -845,12 +851,12 @@ export default function Admin() {
                     {vtLoading === record.id ? <LoaderCircle size={15} className="animate-spin"/> : <ShieldAlert size={15}/>}
                     VirusTotal
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => {
+                  {record.canSubmitToVirusTotal && <Button size="sm" variant="secondary" onClick={() => {
                     setVtUploadFile(record);
                     setVtUploadError("");
                   }}>
                     Submit to VirusTotal
-                  </Button>
+                  </Button>}
                 </>}
                 <Button size="icon" variant="destructive" aria-label="Delete file" onClick={() => { setConfirmFile(record); setDeleteError(""); }}><Trash2 size={16}/></Button>
               </div>
