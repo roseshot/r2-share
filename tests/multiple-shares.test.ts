@@ -58,7 +58,7 @@ function fixture() {
       size: 6, mode, revision: "first-revision", createdAt: new Date().toISOString(),
       expiresAt: null, shareExpiresAt: null,
       ...(mode === "protected" ? {
-        encryptedCode: await encryptCode("first-code", fileId, "first-revision", accessKey),
+        encryptedCode: await encryptCode("first-code", primaryId, "first-revision", accessKey),
       } : {}),
     };
     await saveRecord(env, record);
