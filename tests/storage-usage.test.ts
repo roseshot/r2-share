@@ -19,7 +19,9 @@ describe("D1-backed per-storage usage", () => {
     const worker = read("worker/index.ts");
     expect(worker).toContain('app.get("/:entry/api/settings", async c =>');
     expect(worker).toContain("storageUsage: await getStorageUsage(c.env, (settings?.storages ?? []).map(storage => storage.id))");
-    expect(worker).toContain('if (controller.cron === "0 */6 * * *") await cleanupExpired(configured)');
+    expect(worker).toContain('if (controller.cron === "0 */6 * * *") {');
+    expect(worker).toContain("await cleanupExpired(configured);");
+    expect(worker).toContain("await processVirusTotalQueue(configured);");
   });
 
   test("does not derive usage from the current file page or search filters", () => {
