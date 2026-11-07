@@ -61,9 +61,16 @@ export async function deleteRecord(env: Bindings, id: string): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM shares WHERE file_id = ?").bind(id),
     env.DB.prepare("DELETE FROM files WHERE id = ?").bind(id),
+    env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(id),
+    // Reports and queue entries are shared by identical content. Remove both
+    // only after the last file referencing this SHA-256 has been deleted.
     ...(validChecksums(record.checksums) ? [
       env.DB.prepare(
         "DELETE FROM virustotal_queue WHERE sha256 = ? AND NOT EXISTS " +
+        "(SELECT 1 FROM files WHERE json_extract(record_json, '$.checksums.sha256') = ?)"
+      ).bind(record.checksums.sha256, record.checksums.sha256),
+      env.DB.prepare(
+        "DELETE FROM virustotal_reports WHERE sha256 = ? AND NOT EXISTS " +
         "(SELECT 1 FROM files WHERE json_extract(record_json, '$.checksums.sha256') = ?)"
       ).bind(record.checksums.sha256, record.checksums.sha256),
     ] : []),

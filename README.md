@@ -235,9 +235,14 @@ A missing cached report shows a neutral pending message; opening a share,
 including a placeholder share, **never calls the VirusTotal API**. Protected
 shares reveal reputation details only after the access code is accepted.
 The administrator VirusTotal button reads D1 only; it no longer triggers a live
-lookup. A successful report persists even if its original file is removed,
-avoiding future duplicate lookups. Neither "0 malicious" nor a missing report
-proves a file is safe: VirusTotal is a reputation check, **not an antivirus
+lookup. When a file is deleted (manually or by expiration), its D1 file
+record, share links, residual upload session, and unreferenced VirusTotal queue
+and cached report are removed. Identical files share a SHA-256 record, so
+the cached report is retained until the **last** matching file is deleted.
+A later re-upload after all copies were removed queues a new lookup. Existing
+unreferenced VirusTotal data is cleared by the additive cleanup migration.
+Neither "0 malicious" nor a missing report proves a file is safe: VirusTotal
+is a reputation check, **not an antivirus
 scan or a guarantee of safety**.
 
 ## Notifications and confirmations
@@ -283,6 +288,7 @@ Versioned migrations:
 | `migrations/0003_share_labels.sql` | Adds optional admin-only names without changing share URLs or access settings |
 | `migrations/0004_storage_usage.sql` | Adds the cleanup-generated per-storage usage snapshot table |
 | `migrations/0006_virustotal_queue.sql` | Adds the persistent VirusTotal queue and report cache; queues existing checksums |
+| `migrations/0007_virustotal_cleanup.sql` | Clears previously orphaned VirusTotal queue entries and reports |
 | `migrations/0005_public_upload_pages.sql` | Adds public uploader limits and associates upload reservations with pages |
 
 The `0002` migration preserves existing links' **IDs/URLs, access codes, and expiry**. File metadata retains compatibility fields from the initial schema; the `shares` table is authoritative for link access.

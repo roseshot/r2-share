@@ -125,14 +125,17 @@ export async function processVirusTotalQueue(
     if (claimed.meta.changes !== 1) continue;
     const report = await getVirusTotalReport(sha256, apiKey, request);
     if (report.status === "found") {
-      await env.DB.batch([
+      const [insert] = await env.DB.batch([
+        // An in-flight response must not recreate a cached report after
+        // the last file using this digest was deleted.
         env.DB.prepare(
           "INSERT OR IGNORE INTO virustotal_reports (sha256, report_json, checked_at) " +
-          "VALUES (?, ?, ?)"
-        ).bind(sha256, JSON.stringify(report), new Date(now).toISOString()),
+          "SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM files " +
+          "WHERE json_extract(record_json, '$.checksums.sha256') = ?)"
+        ).bind(sha256, JSON.stringify(report), new Date(now).toISOString(), sha256),
         env.DB.prepare("DELETE FROM virustotal_queue WHERE sha256 = ?").bind(sha256),
       ]);
-      saved++;
+      saved += insert.meta.changes;
     } else if (report.status === "rate_limited") {
       break;
     }

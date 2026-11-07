@@ -72,7 +72,7 @@ describe("environment-injected D1 deployment", () => {
     expect(config.secrets.required).toHaveLength(3);
     expect(config.vars).toBeUndefined();
     const migrations = readdirSync(new URL("../migrations/", import.meta.url)).filter(name => name.endsWith(".sql")).sort();
-    expect(migrations).toEqual(["0001_initial.sql", "0002_file_shares.sql", "0003_share_labels.sql", "0004_storage_usage.sql", "0005_public_upload_pages.sql", "0006_virustotal_queue.sql"]);
+    expect(migrations).toEqual(["0001_initial.sql", "0002_file_shares.sql", "0003_share_labels.sql", "0004_storage_usage.sql", "0005_public_upload_pages.sql", "0006_virustotal_queue.sql", "0007_virustotal_cleanup.sql"]);
     const schema = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS app_settings");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS files");

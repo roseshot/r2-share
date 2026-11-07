@@ -101,6 +101,36 @@ describe("D1 SQLite migrations", () => {
     }
   });
 
+  test("deletes only orphaned VirusTotal reports and queue entries during migration", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec(initial);
+      const inUse = "a".repeat(64);
+      const orphan = "b".repeat(64);
+      db.query("INSERT INTO files (id, record_json, created_at, expires_at) VALUES (?, ?, ?, ?)")
+        .run("retainedFile0001", JSON.stringify({ checksums: { sha256: inUse } }),
+          "2026-11-01", null);
+      db.exec(readFileSync(new URL("../migrations/0006_virustotal_queue.sql", import.meta.url), "utf8"));
+      db.query("INSERT INTO virustotal_queue (sha256, enqueued_at) VALUES (?, ?)")
+        .run(orphan, 0);
+      const insertReport = db.query(
+        "INSERT INTO virustotal_reports (sha256, report_json, checked_at) VALUES (?, ?, ?)");
+      for (const hash of [inUse, orphan]) {
+        insertReport.run(hash, '{"status":"found"}', "2026-11-07");
+      }
+      const migrate = readFileSync(
+        new URL("../migrations/0007_virustotal_cleanup.sql", import.meta.url), "utf8");
+      expect(migrate).not.toMatch(/DROP\\s+TABLE/i);
+      db.exec(migrate);
+      db.exec(migrate);
+      expect(db.query("SELECT sha256 FROM virustotal_queue").all()).toEqual([{ sha256: inUse }]);
+      expect(db.query("SELECT sha256 FROM virustotal_reports").all()).toEqual([{ sha256: inUse }]);
+      expect(db.query("SELECT COUNT(*) AS count FROM files").get()).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
   test("supports multiple links to the same file with separate permissions", () => {
     const db = new Database(":memory:");
     try {

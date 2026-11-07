@@ -126,12 +126,23 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     expect(await response.json()).toMatchObject({
       virusTotal: { status: "found", malicious: 0, suspicious: 1 },
     });
-    await app.upload("persistent-report");
+    const duplicate = await app.upload("persistent-report");
     expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(0);
     expect(await processVirusTotalQueue(app.env, undefined, fetchReport, Date.now() + 86400000)).toBe(0);
     expect(calls).toBe(1);
     await deleteRecord(app.env, first.id);
     expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(1);
+    expect((await getCachedVirusTotalReport(app.env, duplicate.sha256)).status).toBe("found");
+
+    // Once the last copy disappears, both cached data and queue are erased.
+    await deleteRecord(app.env, duplicate.id);
+    expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(0);
+    const reuploaded = await app.upload("persistent-report");
+    expect((await getCachedVirusTotalReport(app.env, reuploaded.sha256)).status).toBe("pending");
+    expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(1);
+    expect(await processVirusTotalQueue(app.env, undefined, fetchReport, Date.now() + 86400000)).toBe(1);
+    expect(calls).toBe(2);
   });
 
   test("keeps 404 and 429 results queued for another six-hour run", async () => {
@@ -167,6 +178,68 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(0);
     expect(await processVirusTotalQueue(app.env, undefined, mock)).toBe(0);
     expect(calls).toBe(0);
+  });
+
+  test("preserves queued hashes for duplicate files until the last copy is removed", async () => {
+    const app = setup();
+    const first = await app.upload("same-pending-content");
+    const second = await app.upload("same-pending-content");
+    expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(1);
+    await deleteRecord(app.env, first.id);
+    expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(1);
+    await deleteRecord(app.env, second.id);
+    expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(0);
+  });
+
+  test("admin file deletion erases file, shares and VirusTotal associations", async () => {
+    const app = setup();
+    const file = await app.upload("delete-associated-data");
+    expect(await app.rows("SELECT * FROM shares")).toHaveLength(1);
+    const response = await app.request("/secret-admin/api/files/" + file.id, {
+      method: "DELETE", headers: { Cookie: await app.cookie() },
+    });
+    expect(response.status).toBe(200);
+    expect(await getRecord(app.env, file.id)).toBeNull();
+    expect(await app.rows("SELECT * FROM shares")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM upload_sessions")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(0);
+    expect(app.objects.has(dataKey(file.id))).toBe(false);
+    const deletedShare = await app.request("/api/files/" + file.shareId);
+    expect(await deletedShare.json()).toMatchObject({ id: file.shareId, mode: "public" });
+  });
+
+  test("does not save a VirusTotal response after the final file is deleted mid-lookup", async () => {
+    const app = setup();
+    const file = await app.upload("deleted-in-flight");
+    let calls = 0;
+    const fetchReport: typeof fetch = async () => {
+      calls++;
+      await deleteRecord(app.env, file.id);
+      return resultJson();
+    };
+    expect(await processVirusTotalQueue(app.env, undefined, fetchReport)).toBe(0);
+    expect(calls).toBe(1);
+    expect(await app.rows("SELECT * FROM files")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(0);
+  });
+
+  test("scheduled expiry cleanup erases VirusTotal cache when removing the last file", async () => {
+    const app = setup();
+    const file = await app.upload("expiring");
+    expect(await processVirusTotalQueue(app.env, undefined, async () => resultJson())).toBe(1);
+    expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(1);
+    const expiredAt = new Date(Date.now() - 60000).toISOString();
+    await app.env.DB.prepare(
+      "UPDATE files SET expires_at = ?, record_json = json_set(record_json, '$.expiresAt', ?) WHERE id = ?"
+    ).bind(expiredAt, expiredAt, file.id).run();
+    const { cleanupExpired } = await import("../worker/storage");
+    expect(await cleanupExpired(app.env)).toBe(1);
+    expect(await app.rows("SELECT * FROM files")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM shares")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(0);
+    expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(0);
   });
 
   test("the scheduled handler runs queue processing on the existing six-hour cron", async () => {
