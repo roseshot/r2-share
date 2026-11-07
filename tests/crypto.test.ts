@@ -70,7 +70,9 @@ describe("encrypted access codes", () => {
   });
   test("rejects malformed, wrong-version, and wrong-variant UUIDs and object paths", () => {
     const id = randomFileId();
-    expect(validUuidV4(id.replace(/-4/, "-1"))).toBe(false);
+    const versionSegments = id.split("-");
+    versionSegments[2] = "1" + versionSegments[2].slice(1);
+    expect(validUuidV4(versionSegments.join("-"))).toBe(false);
     const segments = id.split("-");
     segments[3] = "0" + segments[3].slice(1);
     expect(validUuidV4(segments.join("-"))).toBe(false);
