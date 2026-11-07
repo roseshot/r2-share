@@ -10,6 +10,7 @@ import { originalModificationDate } from "./file-info";
 import { ThemeSwitcher } from "./theme";
 import AdminSettings from "./admin-settings";
 import AdminShares from "./admin-shares";
+import AdminPublicUploads from "./admin-public-uploads";
 import { ConfirmDialog } from "./confirm-dialog";
 import { successToast } from "./notifications";
 import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "./upload-queue";
@@ -770,6 +771,7 @@ export default function Admin() {
           </nav>
         </div>
       </section>
+      <AdminPublicUploads api={api} storageIds={storageIds} />
       <AdminSettings api={api} onSaved={() => void refresh()} />
       <ConfirmDialog open={confirmFile !== null}
         onOpenChange={open => { if (!open) { setConfirmFile(null); setDeleteError(""); } }}

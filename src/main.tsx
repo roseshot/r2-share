@@ -7,6 +7,7 @@ import "./style.css";
 const Home = lazy(() => import("./home"));
 const Admin = lazy(() => import("./admin"));
 const SharePage = lazy(() => import("./share"));
+const PublicUploadPage = lazy(() => import("./public-upload"));
 
 const initialRoute = routeForPath(location.pathname);
 const needsAdminCheck = initialRoute === "share";
@@ -36,6 +37,7 @@ function App() {
   return (
     <Suspense fallback={<div className="grid min-h-screen place-items-center text-sm text-zinc-500">Loading…</div>}>
       {route === "home" ? <Home /> : route === "share" ? <SharePage /> :
+        route === "public-upload" ? <PublicUploadPage /> :
         route === "admin" ? <Admin /> : route === "checking" ?
           <div className="grid min-h-screen place-items-center text-sm text-zinc-500">Loading…</div> :
           <div className="grid min-h-screen place-items-center text-sm text-zinc-500">404 · Page not found</div>}

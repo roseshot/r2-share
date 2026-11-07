@@ -7,6 +7,7 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 - Upload multiple files, drag in folders as ZIP archives, or paste images, files, and plain text (**90 MiB per upload**).
 - Choose a named storage ID at upload time; configure up to **32** B2 or R2 storage instances.
 - Create multiple links for one file, each with its own admin-only name, public/protected access, optional access code, and expiration.
+- Create public upload pages with time expiry and/or a maximum number of successful uploads; contributors need no admin login.
 - Revoke or update one link without affecting other links or duplicating the stored object.
 - Keep file retention separate from link expiration; manage file deletion independently.
 - Download any supported file or preview images, PDFs, text, audio, and video in the browser. Archive files (ZIP, TAR, TGZ, etc.) are download-only; their contents are not parsed or previewed.
@@ -130,6 +131,37 @@ for every successful file. Failed files remain queued for retry; successful file
 are not uploaded again. If storage has not been configured, **Configure storage**
 jumps to the setup form.
 
+## Public upload pages
+
+Administrators can create public upload links in **Public upload pages** below the file list.
+Set a page title, destination Storage ID, and at least one limit:
+
+- **Time limit:** Never, 1 hour, 24 hours, 3 days, or 7 days from creation.
+- **Successful file count:** optional cap of 1–1000 files. Multiple uploads or ZIPs each
+  consume one slot. A page can be count-limited with no time limit, or time-limited
+  with no count limit.
+
+Share the generated `https://your-domain/upload/<page-id>` URL. Visitors do **not**
+need administrator credentials. They can choose files, select folders (compressed
+locally into ZIP), drag files/folders, or paste files, screenshots, and text.
+Files must be nonempty and at most **90 MiB each**. Uploaded files are stored in
+the selected private B2/R2 storage and appear in the normal administrator file
+list. The public uploader does **not** receive file download links or access codes.
+Each uploaded file gets a **protected** initial share with a random access code
+that only an administrator can reveal, so uploading does not make it public.
+
+D1 `public_upload_pages` tracks configured expiry and completed-upload counts.
+`upload_sessions.public_page_id` tracks in-flight reservations; conditional D1
+inserts prevent concurrent visitors from exceeding the quota. A slot counts only
+when file bytes and metadata are successfully saved. Failed uploads free their
+reservation; abandoned transfers are subject to session expiry and cleanup.
+When time or count is exhausted, the link rejects additional uploads. Admins
+can revoke a link at any time without deleting already uploaded files.
+
+Existing download Share Link expiration, access controls, and file retention
+are unchanged. Treat public upload URLs as sensitive: anyone who possesses an
+active link can submit files, subject to the configured limits and rate limiter.
+
 ## Managing files and share links
 
 After upload, a file receives one initial share link. Its link ID matches the file ID; further links get independent random 16-character IDs.
@@ -180,7 +212,7 @@ in usage after the next cleanup. Pagination and search do not affect these total
 
 ## Database and migrations
 
-D1 holds five tables:
+D1 holds six tables:
 
 | Table | Role |
 | --- | --- |
@@ -189,6 +221,7 @@ D1 holds five tables:
 | `upload_sessions` | In-progress upload reservations associated with a storage ID |
 | `app_settings` | Encrypted storage configurations and optional VirusTotal key |
 | `storage_usage` | Cleanup-recalculated bytes and file counts per configured Storage ID |
+| `public_upload_pages` | Public uploader links, expiry dates and completed-upload quotas |
 
 Versioned migrations:
 
@@ -198,6 +231,7 @@ Versioned migrations:
 | `migrations/0002_file_shares.sql` | Adds `shares` and migrates existing single-link settings into the first share |
 | `migrations/0003_share_labels.sql` | Adds optional admin-only names without changing share URLs or access settings |
 | `migrations/0004_storage_usage.sql` | Adds the cleanup-generated per-storage usage snapshot table |
+| `migrations/0005_public_upload_pages.sql` | Adds public uploader limits and associates upload reservations with pages |
 
 The `0002` migration preserves existing links' **IDs/URLs, access codes, and expiry**. File metadata retains compatibility fields from the initial schema; the `shares` table is authoritative for link access.
 

@@ -11,6 +11,8 @@ import { getRecord, saveRecord, deleteRecord, listFilePage, cleanupExpired, rese
 import { getObjectStore, isStorageConfigured } from "./object-store";
 import { getShare, listShares, listSharesForFileIds, createShare, updateShare, deleteShare } from "./shares";
 import { resolveBindings, readAppSettings, saveAppSettings, validateSettings, validateStorage, publicStorage, type AppSettings } from "./app-config";
+import { getPublicUploadPage, listPublicUploadPages, createPublicUploadPage, revokePublicUploadPage,
+  reservePublicUpload, claimPublicUpload, finishPublicUpload, publicPageAvailability } from "./public-upload";
 
 type Environment = { Bindings: Bindings };
 const app = new Hono<Environment>();
@@ -325,6 +327,134 @@ app.delete("/:entry/api/settings/storages/:storageId", async c => {
   return c.json({ ok: true });
 });
 
+app.post("/:entry/api/public-uploads", async c => {
+  const body = await readJson<{
+    label?: string; storageId?: string; expiresIn?: number; maxUploads?: number | null;
+  }>(c.req.raw);
+  if (!body || typeof body.label !== "string" || !body.label.trim() ||
+      body.label.length > 100 || /[\x00-\x1f\x7f]/.test(body.label) ||
+      !validStorageId(body.storageId) ||
+      !isStorageConfigured(c.env, body.storageId) ||
+      !EXPIRATIONS.some(value => value === body.expiresIn) ||
+      (body.maxUploads !== null && body.maxUploads !== undefined &&
+        (!Number.isSafeInteger(body.maxUploads) || body.maxUploads < 1 || body.maxUploads > 1000)) ||
+      (body.expiresIn === 0 && body.maxUploads == null)) {
+    return jsonError("Set a valid label, storage, and time or upload-count limit");
+  }
+  const page = {
+    id: randomId(), label: body.label.trim(), storageId: body.storageId,
+    expiresAt: expirationDate(body.expiresIn!),
+    maxUploads: body.maxUploads ?? null, completedUploads: 0,
+    createdAt: new Date().toISOString(),
+  };
+  await createPublicUploadPage(c.env, page);
+  return c.json({ page }, 201);
+});
+
+app.get("/:entry/api/public-uploads", async c =>
+  c.json({ pages: await listPublicUploadPages(c.env) }));
+
+app.delete("/:entry/api/public-uploads/:id", async c => {
+  const id = c.req.param("id");
+  if (!validId(id) || !await getPublicUploadPage(c.env, id)) return jsonError("Upload page not found", 404);
+  await revokePublicUploadPage(c.env, id);
+  return c.json({ ok: true });
+});
+
+app.get("/api/public-uploads/:id", async c => {
+  const page = await getPublicUploadPage(c.env, c.req.param("id"));
+  if (!page) return jsonError("Upload page not found", 404);
+  const state = await publicPageAvailability(c.env, page);
+  return c.json({ label: page.label, expiresAt: page.expiresAt,
+    maxUploads: page.maxUploads, completedUploads: page.completedUploads, ...state });
+});
+
+app.post("/api/public-uploads/:id/files", async c => {
+  if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
+  const page = await getPublicUploadPage(c.env, c.req.param("id"));
+  if (!page) return jsonError("Upload page not found", 404);
+  if (!isStorageConfigured(c.env, page.storageId)) return jsonError("Storage is unavailable", 503);
+  const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
+  const rate = await c.env.CODE_LIMITER.limit({ key: ("public-upload:" + page.id + ":" + ip).slice(0, 220) });
+  if (!rate.success) return jsonError("Too many upload attempts", 429);
+  const body = await readJson<{ filename?: string; size?: number; mime?: string }>(c.req.raw);
+  if (!body || typeof body.filename !== "string" || !body.filename ||
+      body.filename.length > 240 || /[\x00-\x1f\x7f]/.test(body.filename) ||
+      !Number.isSafeInteger(body.size) || (body.size ?? 0) < 1 ||
+      (body.size ?? 0) > MAX_FILE_BYTES) return jsonError("Invalid file parameters");
+  let id = randomId();
+  let reserved = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (id === c.env.ADMIN_PATH) { id = randomId(); continue; }
+    reserved = await reservePublicUpload(c.env, id, page);
+    if (reserved) break;
+    // Reservations are conditional on page quota and expiry.
+    return jsonError("Upload page expired or upload limit reached", 409);
+  }
+  if (!reserved) return jsonError("Unable to reserve upload", 409);
+  const revision = randomRevision();
+  const code = randomCode();
+  const mime = typeof body.mime === "string" && /^[\w.+-]+\/[\w.+-]+$/.test(body.mime)
+    ? body.mime : "application/octet-stream";
+  const record: FileRecord = {
+    id, revision, storageId: page.storageId, mode: "protected", mime,
+    filename: body.filename, size: body.size!,
+    createdAt: new Date().toISOString(), expiresAt: null, shareExpiresAt: null,
+    encryptedCode: await encryptCode(code, id, revision, c.env.CODE_ENCRYPTION_KEY),
+  };
+  const token = await signToken(c.env.SESSION_SECRET, {
+    scope: "public_upload", pageId: page.id, record, exp: age(600),
+  });
+  return c.json({ id, token });
+});
+
+app.put("/api/public-uploads/:id/files/:fileId", async c => {
+  if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
+  const pageId = c.req.param("id"), id = c.req.param("fileId");
+  if (!validId(pageId) || !validId(id)) return jsonError("Invalid upload request");
+  const token = await readToken(c.env.SESSION_SECRET, c.req.header("X-Upload-Token"));
+  if (!token || token.scope !== "public_upload" || token.pageId !== pageId ||
+      !token.record || typeof token.record !== "object" ||
+      (token.record as FileRecord).id !== id) return jsonError("Invalid upload authorization", 403);
+  const record = token.record as FileRecord;
+  const page = await getPublicUploadPage(c.env, pageId);
+  if (!page || page.storageId !== record.storageId || !isStorageConfigured(c.env, page.storageId)) {
+    return jsonError("Upload page unavailable", 404);
+  }
+  if (!Number.isSafeInteger(record.size) || record.size < 1 || record.size > MAX_FILE_BYTES ||
+      record.mode !== "protected" || !validStorageId(record.storageId)) {
+    return jsonError("Invalid upload authorization", 403);
+  }
+  const lengthHeader = c.req.header("Content-Length");
+  if (lengthHeader && Number(lengthHeader) !== record.size) return jsonError("File size mismatch");
+  if (!c.req.raw.body) return jsonError("File is empty");
+  if (!await claimPublicUpload(c.env, id, pageId, record.storageId)) {
+    return jsonError("Upload authorization expired or already used", 409);
+  }
+  const store = getObjectStore(c.env, page.storageId);
+  const integrity = monitorUpload(c.req.raw.body, record.size);
+  try {
+    const object = await store.put(dataKey(id), integrity.stream, record.mime, record.size);
+    const checksums = await integrity.result();
+    if (!object || object.size !== record.size || checksums.size !== record.size) {
+      await store.delete(dataKey(id));
+      await abandonUpload(c.env, id);
+      return jsonError("File size mismatch or exceeds 90 MiB", 413);
+    }
+    record.checksums = { sha256: checksums.sha256 };
+    if (!await finishPublicUpload(c.env, pageId, record)) {
+      await store.delete(dataKey(id));
+      await abandonUpload(c.env, id);
+      return jsonError("Upload page expired or upload limit reached", 409);
+    }
+    return c.json({ ok: true });
+  } catch (error) {
+    await store.delete(dataKey(id));
+    await abandonUpload(c.env, id);
+    throw error;
+  }
+});
+
 app.get("/:entry/api/files", async c => {
   const rawPage = c.req.query("page") ?? "1";
   const query = c.req.query("q") ?? "";
@@ -599,6 +729,12 @@ app.get("/:entry/api/files/:id/download", async c => {
   const record = await getRecord(c.env, id);
   if (!record || expired(record)) return jsonError("File not found or expired", 404);
   return streamFile(c.env, record, false, c.req.raw);
+});
+
+app.get("/upload/:id", async c => {
+  const page = await getPublicUploadPage(c.env, c.req.param("id"));
+  if (!page) return c.text("Not found", 404);
+  return serveHtml(c.req.raw, c.env);
 });
 
 app.get("/tuckbox-mark.svg", c => c.env.ASSETS.fetch(c.req.raw));
