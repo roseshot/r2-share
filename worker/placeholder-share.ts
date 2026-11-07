@@ -13,8 +13,12 @@ function placeholderSize(baseSize: number, tailExponent: number, high: number, l
 export function createPlaceholderShare(
   id: string,
   values: Uint32Array,
+  referenceTime = Date.now(),
 ): Share {
-  const modifiedAt = new Date(Date.UTC(2026, 10, 1) - (1 + values[3] % 365) * 86400000).toISOString();
+  // Choose both the day and the time of day. The reference time is fixed for
+  // the lease so that repeated requests return exactly the same timestamp.
+  const modifiedAt = new Date(referenceTime -
+    (1 + values[3] % 365) * 86400000 - values[7] % 86400000).toISOString();
   const day = modifiedAt.slice(0, 10);
   const month = day.slice(0, 7);
   const year = day.slice(0, 4);
@@ -144,19 +148,58 @@ export function createPlaceholderShare(
 }
 
 
-// Dedicated HMAC domain prevents share IDs from revealing or influencing the server secret.
-export async function generatePlaceholderShare(id: string, secret: string): Promise<Share> {
-  const encoder = new TextEncoder();
+// A random, per-ID lease duration (1 hour to 7 days) and time offset keep
+// placeholders stable between requests without writing attacker-supplied IDs
+// into storage. When a lease ends, the next period gets different metadata.
+const minLeaseMs = 60 * 60 * 1000;
+const maxLeaseMs = 7 * 24 * minLeaseMs;
+const leaseSpanMs = maxLeaseMs - minLeaseMs + 1;
+const encoder = new TextEncoder();
+async function signPlaceholder(key: CryptoKey, payload: string): Promise<ArrayBuffer> {
+  return crypto.subtle.sign("HMAC", key, encoder.encode("tuckbox/placeholder/v2:" + payload));
+}
+
+async function leaseForKey(
+  key: CryptoKey,
+  id: string,
+  now: number,
+): Promise<{ startsAt: number; expiresAt: number; durationMs: number; period: number }> {
+  const schedule = new DataView(await signPlaceholder(key, "schedule:" + id));
+  const durationMs = minLeaseMs + schedule.getUint32(0, false) % leaseSpanMs;
+  const offsetMs = schedule.getUint32(4, false) % durationMs;
+  const period = Math.floor((now + offsetMs) / durationMs);
+  const startsAt = period * durationMs - offsetMs;
+  return { startsAt, expiresAt: startsAt + durationMs, durationMs, period };
+}
+
+export async function placeholderLease(
+  id: string,
+  secret: string,
+  now = Date.now(),
+): Promise<{ startsAt: number; expiresAt: number; durationMs: number }> {
   const key = await crypto.subtle.importKey(
     "raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
   );
+  const { startsAt, expiresAt, durationMs } = await leaseForKey(key, id, now);
+  return { startsAt, expiresAt, durationMs };
+}
+
+export async function generatePlaceholderShare(
+  id: string,
+  secret: string,
+  now = Date.now(),
+): Promise<Share> {
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const { startsAt, period } = await leaseForKey(key, id, now);
   const [first, second] = await Promise.all([0, 1].map(index =>
-    crypto.subtle.sign("HMAC", key, encoder.encode("tuckbox/placeholder/v1:" + id + ":" + index)),
+    signPlaceholder(key, "file:" + id + ":" + period + ":" + index),
   ));
   const bytes = new Uint8Array(48);
   bytes.set(new Uint8Array(first), 0);
   bytes.set(new Uint8Array(second).subarray(0, 16), 32);
   const view = new DataView(bytes.buffer);
   const values = Uint32Array.from({ length: 12 }, (_, index) => view.getUint32(index * 4, false));
-  return createPlaceholderShare(id, values);
+  return createPlaceholderShare(id, values, startsAt);
 }

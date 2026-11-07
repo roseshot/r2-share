@@ -1,24 +1,75 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { sizeText } from "../src/lib";
-import { createPlaceholderShare, generatePlaceholderShare } from "../worker/placeholder-share";
+import { createPlaceholderShare, generatePlaceholderShare, placeholderLease } from "../worker/placeholder-share";
 
 const id = "Kq8mH2_nP4xY7zQb";
 const secret = "test-session-secret-for-placeholder-metadata";
 
 describe("server-generated missing share metadata", () => {
-  test("is stable across repeated requests and independent Worker instances", async () => {
-    const first = await generatePlaceholderShare(id, secret);
-    const second = await generatePlaceholderShare(id, secret);
+  test("is stable across repeated requests and Worker instances during a lease", async () => {
+    const now = Date.UTC(2026, 10, 7, 12, 30);
+    const first = await generatePlaceholderShare(id, secret, now);
+    const second = await generatePlaceholderShare(id, secret, now);
     expect(second).toEqual(first);
-    expect(await generatePlaceholderShare("OtherMissingID99", secret)).not.toEqual(first);
-    expect(await generatePlaceholderShare(id, secret + "rotated")).not.toEqual(first);
+    const lease = await placeholderLease(id, secret, now);
+    expect(await generatePlaceholderShare(id, secret, lease.startsAt)).toEqual(first);
+    expect(await generatePlaceholderShare(id, secret, lease.expiresAt - 1)).toEqual(first);
+    expect(await generatePlaceholderShare("OtherMissingID99", secret, now)).not.toEqual(first);
+    expect(await generatePlaceholderShare(id, secret + "rotated", now)).not.toEqual(first);
     expect(first).toMatchObject({ id, mode: "public" });
     expect(first.filename).toMatch(/\.(pdf|jpg|zip|txt|mp4|xlsx)$/);
     expect(first.checksums?.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(Date.parse(first.originalModifiedAt!)).toBeLessThan(Date.now());
     expect(first.size).toBeGreaterThan(0);
     expect(first.size).toBeLessThan(1024 ** 4);
+  });
+
+  test("leases last between one hour and seven days and rotate metadata on expiry", async () => {
+    const now = Date.UTC(2026, 10, 7, 12, 30);
+    const minimum = 60 * 60 * 1000;
+    const maximum = 7 * 24 * minimum;
+    const periods = new Set<number>();
+    for (let i = 0; i < 30; i++) {
+      const shareId = "MissingShare" + String(i).padStart(4, "0");
+      const lease = await placeholderLease(shareId, secret, now);
+      expect(lease.durationMs).toBeGreaterThanOrEqual(minimum);
+      expect(lease.durationMs).toBeLessThanOrEqual(maximum);
+      expect(lease.expiresAt - lease.startsAt).toBe(lease.durationMs);
+      expect(lease.startsAt).toBeLessThanOrEqual(now);
+      expect(lease.expiresAt).toBeGreaterThan(now);
+      periods.add(lease.durationMs);
+      const previous = await generatePlaceholderShare(shareId, secret, lease.expiresAt - 1);
+      const renewed = await generatePlaceholderShare(shareId, secret, lease.expiresAt);
+      expect(previous).not.toEqual(renewed);
+      expect(await generatePlaceholderShare(shareId, secret, lease.expiresAt + 1)).toEqual(renewed);
+      const nextLease = await placeholderLease(shareId, secret, lease.expiresAt);
+      expect(nextLease.startsAt).toBe(lease.expiresAt);
+      expect(nextLease.durationMs).toBe(lease.durationMs);
+    }
+    expect(periods.size).toBeGreaterThan(1);
+  });
+
+  test("randomizes the modification hour, minute, and second across IDs", async () => {
+    const now = Date.UTC(2026, 10, 7, 12, 30);
+    const times = new Set<string>();
+    const hours = new Set<number>();
+    for (let i = 0; i < 24; i++) {
+      const share = await generatePlaceholderShare("TimeSample" + String(i).padStart(6, "0"), secret, now);
+      const date = new Date(share.originalModifiedAt!);
+      expect(date.getTime()).toBeLessThan(now);
+      times.add(date.toISOString().slice(11, 19));
+      hours.add(date.getUTCHours());
+      expect(share.filename).not.toContain("undefined");
+    }
+    expect(times.size).toBeGreaterThan(12);
+    expect(hours.size).toBeGreaterThan(4);
+    const values = new Uint32Array(12);
+    const reference = Date.UTC(2026, 10, 7, 10, 0, 0);
+    values[3] = 0;
+    values[7] = 12 * 60 * 60 * 1000 + 34 * 60 * 1000 + 56 * 1000;
+    const fixed = createPlaceholderShare(id, values, reference);
+    expect(fixed.originalModifiedAt).toBe("2026-11-05T21:25:04.000Z");
   });
 
   test("uses familiar filenames, type-aware sizes and the existing size ceiling", () => {
