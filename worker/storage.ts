@@ -78,11 +78,11 @@ export async function claimUpload(env: Bindings, id: string, storageId: string):
   return result.meta.changes === 1;
 }
 
-export async function finishUpload(env: Bindings, record: FileRecord): Promise<void> {
+export async function finishUpload(env: Bindings, record: FileRecord, shareId: string): Promise<void> {
   if (!parseRecord(record)) throw new Error("Invalid file record");
   await env.DB.batch([
     recordStatement(env, record),
-    createInitialShareStatement(env, record),
+    createInitialShareStatement(env, record, shareId),
     env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(record.id),
   ]);
 }

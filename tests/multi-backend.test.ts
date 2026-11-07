@@ -217,7 +217,7 @@ describe("multiple object storage IDs", () => {
     expect(await cleanupExpired(app.env)).toBe(1);
     expect(app.maps["r2-alpha"].has(dataKey(id))).toBe(false);
 
-    const orphan = "Abandoned";
+    const orphan = "AbandonedUpload1";
     app.maps["b2-alpha"].set(dataKey(orphan), "keep b2");
     app.maps["b2-beta"].set(dataKey(orphan), "keep other b2");
     app.maps["r2-beta"].set(dataKey(orphan), "orphan r2");
@@ -233,7 +233,7 @@ describe("multiple object storage IDs", () => {
   test("rejects records without a valid storage ID", async () => {
     const app = fixture();
     const record: FileRecord = {
-      id: "BadRecord1", storageId: "bad id", filename: "bad.txt",
+      id: "MissingBackend12", storageId: "bad id", filename: "bad.txt",
       mime: "text/plain", size: 6, mode: "public", revision: "revision",
       createdAt: new Date().toISOString(), expiresAt: null, shareExpiresAt: null,
     };

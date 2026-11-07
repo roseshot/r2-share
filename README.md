@@ -184,12 +184,12 @@ to reject missing, expired, or unauthorized shares. Download/preview attempts
 on decoy details return an error. The actual administrator path is identified
 using the authenticated session probe.
 
-New file and share-link IDs have a randomly selected length of 8, 9, or 10
-Base64URL characters (48-60 random bits). After upload, the initial share-link
-ID matches the file ID; further links get independently generated IDs. Public
-upload page IDs use the same format. Legacy 16-character IDs are not accepted
-by the public or administrative APIs. Shorter IDs are easier to enumerate than
-the former 96-bit IDs; deploy edge rate limiting to reduce automated guessing.
+File IDs and public upload page IDs remain 16-character Base64URL values
+(96 random bits). Real share-link IDs are independently generated as 8, 9, or 10
+Base64URL characters (48-60 random bits). Initial shares no longer reuse the
+file ID. Legacy 16-character share links are not accepted, but file records
+retain their original IDs in storage and administrative APIs. Shorter share
+IDs are easier to enumerate than 96-bit IDs; deploy edge rate limiting.
 
 In **File management**, click the **file name** to replace that name with an inline
 input and use **Save** or **Cancel** to confirm or discard the rename. Click **File deletion**

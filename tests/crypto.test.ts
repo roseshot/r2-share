@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  b64, decryptCode, encryptCode, equalText, randomCode, randomId, randomRevision, readToken, signToken,
+  b64, decryptCode, encryptCode, equalText, randomCode, randomId, randomFileId, randomRevision, readToken, signToken,
 } from "../worker/crypto";
 import { validId, validStoredId } from "../worker/model";
 import type { FileRecord } from "../worker/model";
@@ -39,16 +39,25 @@ describe("encrypted access codes", () => {
     for (const id of ids) {
       expect(id).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
       expect(validId(id)).toBe(true);
-      expect(validStoredId(id)).toBe(true);
+      expect(validStoredId(id)).toBe(false);
     }
   });
   test("rejects legacy 16-character IDs and all lengths outside 8-10", () => {
     for (const length of [1, 7, 11, 12, 15, 16, 20]) {
       expect(validId("A".repeat(length))).toBe(false);
-      expect(validStoredId("A".repeat(length))).toBe(false);
+      expect(validStoredId("A".repeat(length))).toBe(length === 16);
     }
     for (const length of [8, 9, 10]) expect(validId("A".repeat(length))).toBe(true);
     expect(validId("invalid!")).toBe(false);
+  });
+  test("retains 16-character, 96-bit file IDs independently of share IDs", () => {
+    const ids = Array.from({ length: 200 }, randomFileId);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ids) {
+      expect(id).toMatch(/^[A-Za-z0-9_-]{16}$/);
+      expect(validStoredId(id)).toBe(true);
+      expect(validId(id)).toBe(false);
+    }
   });
   test("randomly generated codes have eight display-safe characters", () => {
     expect(randomCode()).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);

@@ -31,10 +31,10 @@ describe("public and private page routing", () => {
   });
 
   test("routes a public uploader separately from admin and download links", () => {
-    expect(routeForPath("/u/AbC123xy")).toBe("public-upload");
-    expect(routeForPath("/u/ABCdef123")).toBe("public-upload");
-    expect(routeForPath("/u/ABCdef1234")).toBe("public-upload");
-    expect(routeForPath("/u/ABCDEFGHIJKLMNOP")).toBe("not-found");
+    expect(routeForPath("/u/ABCDEFGHIJKLMNOP")).toBe("public-upload");
+    expect(routeForPath("/u/AbC123xy")).toBe("not-found");
+    expect(routeForPath("/u/ABCdef123")).toBe("not-found");
+    expect(routeForPath("/u/ABCdef1234")).toBe("not-found");
     expect(routeForPath("/u/not-an-id-invalid")).toBe("not-found");
     expect(routeForPath("/u/ABCDEFGHIJKLMNOP/files")).toBe("not-found");
     expect(routeForPath("/upload/ABCDEFGHIJKLMNOP")).toBe("not-found");

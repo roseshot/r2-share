@@ -5,7 +5,7 @@ const singleSegmentPath = /^\/[a-zA-Z0-9_-]+$/;
 
 export function routeForPath(path: string, isAdminEntry = false): Route {
   if (path === "/") return "home";
-  if (/^\/u\/[A-Za-z0-9_-]{8,10}$/.test(path)) return "public-upload";
+  if (/^\/u\/[A-Za-z0-9_-]{16}$/.test(path)) return "public-upload";
   if (singleSegmentPath.test(path)) return isAdminEntry ? "admin" : "share";
   return "not-found";
 }

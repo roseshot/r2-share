@@ -10,7 +10,8 @@ import { createShare, initialShare } from "../worker/shares";
 import { dataKey, type Bindings, type FileRecord } from "../worker/model";
 
 const origin = "https://share.example.test";
-const fileId = "ABCdef1234";
+const fileId = "ABCDEF0123456789";
+const primaryId = "ABCdef1234";
 
 function fixture(protectedLink = false) {
   const env = {
@@ -50,10 +51,10 @@ function fixture(protectedLink = false) {
       size: 6, mode: protectedLink ? "protected" : "public",
       revision: "initial-revision", createdAt: new Date().toISOString(),
       expiresAt: null, shareExpiresAt: null,
-      ...(protectedLink ? { encryptedCode: await encryptCode("test-code", fileId, "initial-revision", env.CODE_ENCRYPTION_KEY) } : {}),
+      ...(protectedLink ? { encryptedCode: await encryptCode("test-code", primaryId, "initial-revision", env.CODE_ENCRYPTION_KEY) } : {}),
     };
     await saveRecord(env, record);
-    await createShare(env, initialShare(record));
+    await createShare(env, initialShare(record, primaryId));
   }
   return { request, createFile };
 }
@@ -78,7 +79,7 @@ describe("download range and availability checks", () => {
   test("supports HEAD preflight without returning the file body", async () => {
     const app = fixture();
     await app.createFile();
-    const head = await app.request("/api/files/" + fileId + "/download", { method: "HEAD" });
+    const head = await app.request("/api/files/" + primaryId + "/download", { method: "HEAD" });
     expect(head.status).toBe(200);
     expect(head.headers.get("Content-Length")).toBe("6");
     expect(head.headers.get("Accept-Ranges")).toBe("bytes");
@@ -87,33 +88,33 @@ describe("download range and availability checks", () => {
   test("streams single ranges for downloads and previews", async () => {
     const app = fixture();
     await app.createFile();
-    const partial = await app.request("/api/files/" + fileId + "/download", {
+    const partial = await app.request("/api/files/" + primaryId + "/download", {
       headers: { Range: "bytes=1-3" },
     });
     expect(partial.status).toBe(206);
     expect(partial.headers.get("Content-Range")).toBe("bytes 1-3/6");
     expect(partial.headers.get("Content-Length")).toBe("3");
     expect(await partial.text()).toBe("amp");
-    const suffix = await app.request("/api/files/" + fileId + "/preview", {
+    const suffix = await app.request("/api/files/" + primaryId + "/preview", {
       headers: { Range: "bytes=-2" },
     });
     expect(suffix.status).toBe(206);
     expect(await suffix.text()).toBe("le");
-    const full = await app.request("/api/files/" + fileId + "/download");
+    const full = await app.request("/api/files/" + primaryId + "/download");
     expect(full.status).toBe(200);
     expect(await full.text()).toBe("sample");
   });
   test("returns 416 for invalid byte ranges and protects HEAD", async () => {
     const publicApp = fixture();
     await publicApp.createFile();
-    const invalid = await publicApp.request("/api/files/" + fileId + "/download", {
+    const invalid = await publicApp.request("/api/files/" + primaryId + "/download", {
       headers: { Range: "bytes=99-100" },
     });
     expect(invalid.status).toBe(416);
     expect(invalid.headers.get("Content-Range")).toBe("bytes */6");
     const locked = fixture(true);
     await locked.createFile();
-    expect((await locked.request("/api/files/" + fileId + "/download", {
+    expect((await locked.request("/api/files/" + primaryId + "/download", {
       method: "HEAD",
     })).status).toBe(403);
   });

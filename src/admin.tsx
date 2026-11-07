@@ -21,7 +21,7 @@ const base = location.pathname;
 const api = (path: string) => base + "/api" + path;
 
 type UploadResult = {
-  id: string; filename: string; size: number; mode: Mode; code: string | null;
+  id: string; shareId: string; filename: string; size: number; mode: Mode; code: string | null;
   expiresAt: string | null;
 };
 
@@ -261,7 +261,7 @@ export default function Admin() {
       setProcessing(false);
       try {
         // Reserve an independent session immediately before each transfer.
-        const init = await requestJson<{ id: string; token: string; code: string | null }>(
+        const init = await requestJson<{ id: string; shareId: string; token: string; code: string | null }>(
           api("/uploads"),
           { method: "POST", ...jsonBody({
             filename: entry.filename, size: entry.file.size,
@@ -297,7 +297,7 @@ export default function Admin() {
           xhr.send(entry.file);
         });
         const result: UploadResult = {
-          id: init.id, filename: entry.filename, size: entry.file.size, mode,
+          id: init.id, shareId: init.shareId, filename: entry.filename, size: entry.file.size, mode,
           code: init.code, expiresAt: shareDuration === 0 ? null :
             new Date(Date.now() + shareDuration * 1000).toISOString(),
         };
@@ -582,15 +582,15 @@ export default function Admin() {
                 <p className="break-all text-sm font-medium">{result.filename} · {sizeText(result.size)}</p>
                 <p className="mt-2 text-xs text-zinc-500">Share link</p>
                 <code className="mt-1 block break-all rounded-lg bg-white p-3 text-xs dark:bg-zinc-950">
-                  {location.origin + "/" + result.id}
+                  {location.origin + "/" + result.shareId}
                 </code>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button size="sm" variant="secondary"
-                    onClick={() => void copyShareValue(location.origin + "/" + result.id, "Share link")}>
+                    onClick={() => void copyShareValue(location.origin + "/" + result.shareId, "Share link")}>
                     Copy link
                   </Button>
                   <a className={buttonStyles({ variant: "secondary", size: "sm" })}
-                    href={"/" + result.id} target="_blank" rel="noopener noreferrer">Open link</a>
+                    href={"/" + result.shareId} target="_blank" rel="noopener noreferrer">Open link</a>
                 </div>
                 <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
                   {result.mode === "protected" ? "Access code required" : "Public link"}

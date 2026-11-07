@@ -89,12 +89,12 @@ describe("public upload pages", () => {
       body: JSON.stringify({ label: "bad", storageId: storage.id, expiresIn: 3600 }),
     })).status).toBe(401);
     const id = await app.create();
-    expect(id).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
+    expect(id).toMatch(/^[A-Za-z0-9_-]{16}$/);
     const list = await app.admin("/public-uploads");
     expect((await list.json() as { pages: { id: string }[] }).pages[0].id).toBe(id);
     const html = await app.request("/u/" + id);
     expect(html.status).toBe(200);
-    expect((await app.request("/api/public-uploads/ABCDEFGHIJKLMNOP")).status).toBe(404);
+    expect((await app.request("/api/public-uploads/AbC123xy")).status).toBe(404);
     for (const path of ["/u/not-valid", "/u/ABCDEFGHIJKLMNOP", "/upload/" + id]) {
       const unknown = await app.request(path);
       expect(unknown.status).toBe(302);
@@ -133,17 +133,19 @@ describe("public upload pages", () => {
     const id = await app.create(0, 1);
     const [a, b] = await Promise.all([app.initiate(id), app.initiate(id)]);
     expect([a.status, b.status].sort()).toEqual([200, 409]);
-    const start = await (a.status === 200 ? a : b).json() as { id: string; token: string };
+    const start = await (a.status === 200 ? a : b).json() as { id: string; shareId: string; token: string };
     expect((await app.request("/api/public-uploads/" + id)).status).toBe(200);
     expect((await app.put(id, start)).status).toBe(200);
+    expect(start.id).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(start.shareId).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
     expect(app.objects.get(dataKey(start.id))).toBe("test");
     const record = await getRecord(app.env, start.id);
     expect(record?.mode).toBe("protected");
     expect(record?.encryptedCode).toBeDefined();
-    expect((await app.request("/api/files/" + start.id)).status).toBe(200);
-    expect(await (await app.request("/api/files/" + start.id)).json())
-      .toEqual({ id: start.id, mode: "protected" });
-    expect((await app.request("/api/files/" + start.id + "/download")).status).toBe(403);
+    expect((await app.request("/api/files/" + start.shareId)).status).toBe(200);
+    expect(await (await app.request("/api/files/" + start.shareId)).json())
+      .toEqual({ id: start.shareId, mode: "protected" });
+    expect((await app.request("/api/files/" + start.shareId + "/download")).status).toBe(403);
     expect((await app.initiate(id)).status).toBe(409);
     const page = await getPublicUploadPage(app.env, id);
     expect(page?.completedUploads).toBe(1);

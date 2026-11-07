@@ -9,7 +9,8 @@ import { dataKey, type Bindings, type FileRecord } from "../worker/model";
 import { createTestDatabase } from "./d1-helper";
 
 const origin = "https://share.example.test";
-const fileId = "ABCdef123";
+const fileId = "ABCDEF0123456789";
+const primaryId = "ABCdef123";
 const accessKey = b64(new Uint8Array(32));
 
 function fixture() {
@@ -61,7 +62,7 @@ function fixture() {
       } : {}),
     };
     await saveRecord(env, record);
-    await createShare(env, initialShare(record));
+    await createShare(env, initialShare(record, primaryId));
     objects.set(dataKey(fileId), "sample");
     return record;
   }
@@ -77,7 +78,9 @@ describe("independent multiple share links", () => {
       checksums: { sha256: "a".repeat(64) },
       originalModifiedAt: "2026-06-03T12:00:00.000Z",
     });
-    const real = await (await app.request("/api/files/" + fileId)).json() as Record<string, unknown>;
+    const real = await (await app.request("/api/files/" + primaryId)).json() as Record<string, unknown>;
+    expect((await app.request("/api/files/" + fileId)).status).toBe(404);
+    expect((await getRecord(app.env, fileId))?.id).toBe(fileId);
     const unknown = "Fq8mH2_nP4";
     const first = await app.request("/api/files/" + unknown);
     expect(first.status).toBe(200);
@@ -109,11 +112,11 @@ describe("independent multiple share links", () => {
       expect(await response.json()).toEqual({ error: "File not found" });
     }
     expect((await app.request("/api/files/bad!")).status).toBe(404);
-    expect(await (await app.request("/api/files/" + fileId)).json()).toEqual(real);
+    expect(await (await app.request("/api/files/" + primaryId)).json()).toEqual(real);
   });
 
 
-  test("keeps existing file-ID links and adds independent protected links", async () => {
+  test("keeps the initial short share separate from the file ID and adds protected links", async () => {
     const app = fixture();
     await app.createFile();
     const created = await app.admin("/files/" + fileId + "/shares", "POST", {
@@ -128,8 +131,8 @@ describe("independent multiple share links", () => {
     expect((await app.request("/api/files/" + shareId)).status).toBe(200);
     expect(await (await app.request("/api/files/" + shareId)).json())
       .toEqual({ id: shareId, mode: "protected" });
-    expect(await (await app.request("/api/files/" + fileId)).json())
-      .toMatchObject({ id: fileId, filename: "sample.txt", mode: "public" });
+    expect(await (await app.request("/api/files/" + primaryId)).json())
+      .toMatchObject({ id: primaryId, filename: "sample.txt", mode: "public" });
     expect((await app.request("/api/files/" + shareId + "/download")).status).toBe(403);
     const unlock = await app.request("/api/files/" + shareId + "/unlock", {
       method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
@@ -140,7 +143,7 @@ describe("independent multiple share links", () => {
     expect(await (await app.request("/api/files/" + shareId + "/download", {
       headers: { Cookie: cookie },
     })).text()).toBe("sample");
-    expect((await app.request("/api/files/" + fileId + "/download")).status).toBe(200);
+    expect((await app.request("/api/files/" + primaryId + "/download")).status).toBe(200);
   });
 
   test("archive files remain downloadable but cannot be previewed", async () => {
@@ -150,13 +153,13 @@ describe("independent multiple share links", () => {
     file.mime = "application/gzip";
     await saveRecord(app.env, file);
 
-    const preview = await app.request("/api/files/" + fileId + "/preview");
+    const preview = await app.request("/api/files/" + primaryId + "/preview");
     expect(preview.status).toBe(400);
     expect(await preview.json()).toMatchObject({
       error: "Preview not supported for this file type",
     });
 
-    const download = await app.request("/api/files/" + fileId + "/download");
+    const download = await app.request("/api/files/" + primaryId + "/download");
     expect(download.status).toBe(200);
     expect(await download.text()).toBe("sample");
   });
@@ -187,7 +190,7 @@ describe("independent multiple share links", () => {
     const base = await app.createFile();
     for (let n = 0; n < 26; n++) {
       await saveRecord(app.env, {
-        ...base, id: String(n).padStart(10, "0"),
+        ...base, id: String(n).padStart(16, "0"),
         filename: "needle-" + n + ".txt",
         createdAt: new Date(Date.now() - n * 1000).toISOString(),
       });
@@ -223,7 +226,7 @@ describe("independent multiple share links", () => {
     expect((await app.request("/api/files/" + secondId + "/download", {
       headers: { Cookie: firstCookie },
     })).status).toBe(403);
-    expect((await app.request("/api/files/" + fileId + "/download", {
+    expect((await app.request("/api/files/" + primaryId + "/download", {
       headers: { Cookie: secondCookie },
     })).status).toBe(403);
     const updated = await app.admin("/files/" + fileId + "/shares/" + secondId, "PATCH", {
@@ -233,7 +236,7 @@ describe("independent multiple share links", () => {
     expect((await app.request("/api/files/" + secondId + "/download", {
       headers: { Cookie: secondCookie },
     })).status).toBe(403);
-    expect((await app.request("/api/files/" + fileId + "/download", {
+    expect((await app.request("/api/files/" + primaryId + "/download", {
       headers: { Cookie: firstCookie },
     })).status).toBe(200);
     expect((await getShare(app.env, secondId))?.expiresAt).not.toBeNull();
@@ -262,7 +265,7 @@ describe("independent multiple share links", () => {
     expect(app.objects.get(dataKey(fileId))).toBe("sample");
     const shareDetails = await app.request("/api/files/" + secondId);
     expect(await shareDetails.json()).toMatchObject({ filename: "Renamed notes.txt" });
-    const download = await app.request("/api/files/" + fileId + "/download");
+    const download = await app.request("/api/files/" + primaryId + "/download");
     expect(download.headers.get("Content-Disposition")).toContain("Renamed%20notes.txt");
     expect((await app.admin("/files/" + fileId, "PATCH", { fileExpiresIn: 0 })).status).toBe(200);
     expect((await getRecord(app.env, fileId))?.expiresAt).toBeNull();
@@ -297,7 +300,7 @@ describe("independent multiple share links", () => {
     expect(revoked.status).toBe(200);
     expect(await revoked.json()).toMatchObject({ id: secondId, mode: "public" });
     expect((await app.request("/api/files/" + secondId + "/download")).status).toBe(404);
-    expect((await app.request("/api/files/" + fileId)).status).toBe(200);
+    expect((await app.request("/api/files/" + primaryId)).status).toBe(200);
     expect(await getRecord(app.env, fileId)).not.toBeNull();
     expect(app.objects.get(dataKey(fileId))).toBe("sample");
     expect((await app.admin("/files/" + fileId, "DELETE")).status).toBe(200);
@@ -322,7 +325,7 @@ describe("independent multiple share links", () => {
     expect(expired.status).toBe(200);
     expect(await expired.json()).toMatchObject({ id: secondId, mode: "public" });
     expect((await app.request("/api/files/" + secondId + "/download")).status).toBe(404);
-    expect((await app.request("/api/files/" + fileId)).status).toBe(200);
+    expect((await app.request("/api/files/" + primaryId)).status).toBe(200);
     expect(app.objects.get(dataKey(fileId))).toBe("sample");
   });
 });

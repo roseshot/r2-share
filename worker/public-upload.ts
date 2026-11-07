@@ -1,5 +1,5 @@
 import type { Bindings, FileRecord } from "./model";
-import { validId } from "./model";
+import { validStoredId } from "./model";
 import { initialShare } from "./shares";
 
 export interface PublicUploadPage {
@@ -25,7 +25,7 @@ const pendingCutoff = () => Date.now() - 600000;
 const uploadingCutoff = () => Date.now() - 86400000;
 
 export async function getPublicUploadPage(env: Bindings, id: string): Promise<PublicUploadPage | null> {
-  if (!validId(id)) return null;
+  if (!validStoredId(id)) return null;
   const row = await env.DB.prepare(
     "SELECT id, label, storage_id, expires_at, max_uploads, completed_uploads, created_at " +
     "FROM public_upload_pages WHERE id = ?"
@@ -87,8 +87,8 @@ export async function claimPublicUpload(env: Bindings, fileId: string, pageId: s
  * Every following write is conditional on the previous write's changes() count;
  * if a page expired/revoked mid-upload, nothing is committed.
  */
-export async function finishPublicUpload(env: Bindings, pageId: string, record: FileRecord): Promise<boolean> {
-  const share = initialShare(record);
+export async function finishPublicUpload(env: Bindings, pageId: string, record: FileRecord, shareId: string): Promise<boolean> {
+  const share = initialShare(record, shareId);
   const outcome = await env.DB.batch([
     env.DB.prepare(
       "UPDATE public_upload_pages SET completed_uploads = completed_uploads + 1 " +

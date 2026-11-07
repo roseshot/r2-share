@@ -11,12 +11,13 @@ import { createTestDatabase } from "./d1-helper";
 
 const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const origin = "https://files.example.test";
-const id = "A_-a".repeat(2);
+const id = "A_-a".repeat(4);
+const shareId = "A_-a".repeat(2);
 
 async function saveRecord(env: Bindings, record: FileRecord): Promise<void> {
   await saveFileRecord(env, record);
-  const primary = initialShare(record);
-  if (await getShare(env, record.id)) await updateShare(env, primary);
+  const primary = initialShare(record, shareId);
+  if (await getShare(env, shareId)) await updateShare(env, primary);
   else await createShare(env, primary);
 }
 
@@ -122,17 +123,17 @@ describe("independent file and share expiration", () => {
   test("requires an access code before revealing file information or downloading", async () => {
     const app = setup();
     const entry = app.record();
-    entry.encryptedCode = await encryptCode("open1234", id, entry.revision, key);
+    entry.encryptedCode = await encryptCode("open1234", shareId, entry.revision, key);
     await saveRecord(app.env, entry);
     app.objects.set(dataKey(id), "secret");
 
-    const first = await app.request("/api/files/" + id);
+    const first = await app.request("/api/files/" + shareId);
     expect(first.status).toBe(200);
-    expect(await first.json()).toEqual({ id, mode: "protected" });
-    const denied = await app.request("/api/files/" + id + "/download");
+    expect(await first.json()).toEqual({ id: shareId, mode: "protected" });
+    const denied = await app.request("/api/files/" + shareId + "/download");
     expect(denied.status).toBe(403);
 
-    const wrong = await app.request("/api/files/" + id + "/unlock", {
+    const wrong = await app.request("/api/files/" + shareId + "/unlock", {
       method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify({ code: "invalid" }),
@@ -140,7 +141,7 @@ describe("independent file and share expiration", () => {
     expect(wrong.status).toBe(403);
     expect(wrong.headers.get("Set-Cookie")).toBeNull();
 
-    const unlock = await app.request("/api/files/" + id + "/unlock", {
+    const unlock = await app.request("/api/files/" + shareId + "/unlock", {
       method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify({ code: "open1234" }),
@@ -154,11 +155,11 @@ describe("independent file and share expiration", () => {
     expect(setCookie).toContain("HttpOnly");
     const cookie = setCookie.split(";")[0];
 
-    const details = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
+    const details = await app.request("/api/files/" + shareId, { headers: { Cookie: cookie } });
     expect(await details.json()).toEqual({
-      id, filename: "private-document.txt", size: 6, mime: "text/plain", mode: "protected",
+      id: shareId, filename: "private-document.txt", size: 6, mime: "text/plain", mode: "protected",
     });
-    const download = await app.request("/api/files/" + id + "/download", { headers: { Cookie: cookie } });
+    const download = await app.request("/api/files/" + shareId + "/download", { headers: { Cookie: cookie } });
     expect(download.status).toBe(200);
     expect(await download.text()).toBe("secret");
   });
@@ -166,11 +167,11 @@ describe("independent file and share expiration", () => {
   test("remembers protected share authorization across visits for 24 hours", async () => {
     const app = setup();
     const entry = app.record();
-    entry.encryptedCode = await encryptCode("open1234", id, entry.revision, key);
+    entry.encryptedCode = await encryptCode("open1234", shareId, entry.revision, key);
     await saveRecord(app.env, entry);
     app.objects.set(dataKey(id), "secret");
 
-    const unlock = await app.request("/api/files/" + id + "/unlock", {
+    const unlock = await app.request("/api/files/" + shareId + "/unlock", {
       method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify({ code: "open1234" }),
@@ -183,11 +184,11 @@ describe("independent file and share expiration", () => {
     expect(claims?.exp).toBeGreaterThan(Date.now() + 23 * 3600 * 1000);
     expect(claims?.exp).toBeLessThanOrEqual(Date.now() + 24 * 3600 * 1000);
 
-    const revisit = await app.request("/" + id, { headers: { Cookie: cookie } });
+    const revisit = await app.request("/" + shareId, { headers: { Cookie: cookie } });
     expect(revisit.status).toBe(200);
-    const file = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
+    const file = await app.request("/api/files/" + shareId, { headers: { Cookie: cookie } });
     expect((await file.json() as { filename: string }).filename).toBe(entry.filename);
-    const download = await app.request("/api/files/" + id + "/download", { headers: { Cookie: cookie } });
+    const download = await app.request("/api/files/" + shareId + "/download", { headers: { Cookie: cookie } });
     expect(download.status).toBe(200);
   });
 
@@ -196,63 +197,63 @@ describe("independent file and share expiration", () => {
     const entry = app.record({
       shareExpiresAt: new Date(Date.now() + 3600000).toISOString(),
     });
-    entry.encryptedCode = await encryptCode("open1234", id, entry.revision, key);
+    entry.encryptedCode = await encryptCode("open1234", shareId, entry.revision, key);
     await saveRecord(app.env, entry);
     const token = await signToken(app.env.SESSION_SECRET, {
-      scope: "download", id, revision: entry.revision, exp: Date.now() + 60000,
+      scope: "download", id: shareId, revision: entry.revision, exp: Date.now() + 60000,
     });
-    const cookie = "r2_access_" + id + "=" + token;
+    const cookie = "r2_access_" + shareId + "=" + token;
     entry.shareExpiresAt = new Date(Date.now() - 1000).toISOString();
     await saveRecord(app.env, entry);
 
-    const expiredPage = await app.request("/" + id, { headers: { Cookie: cookie } });
+    const expiredPage = await app.request("/" + shareId, { headers: { Cookie: cookie } });
     expect(expiredPage.status).toBe(200); // Branded unavailable page renders first.
-    const expiredMetadata = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
+    const expiredMetadata = await app.request("/api/files/" + shareId, { headers: { Cookie: cookie } });
     expect(expiredMetadata.status).toBe(200);
-    expect(await expiredMetadata.json()).toMatchObject({ id, mode: "public" });
+    expect(await expiredMetadata.json()).toMatchObject({ id: shareId, mode: "public" });
     expect(expiredMetadata.headers.get("Set-Cookie")).toContain("Max-Age=0");
-    const expiredDownload = await app.request("/api/files/" + id + "/download", {
+    const expiredDownload = await app.request("/api/files/" + shareId + "/download", {
       headers: { Cookie: cookie },
     });
     expect(expiredDownload.status).toBe(404);
     expect(expiredDownload.headers.get("Set-Cookie")).toContain("Max-Age=0");
     expect(expiredDownload.headers.get("Set-Cookie")).toContain("Path=/");
     await deleteRecord(app.env, id);
-    const deleted = await app.request("/" + id, { headers: { Cookie: cookie } });
+    const deleted = await app.request("/" + shareId, { headers: { Cookie: cookie } });
     expect(deleted.status).toBe(200);
-    const deletedMetadata = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
+    const deletedMetadata = await app.request("/api/files/" + shareId, { headers: { Cookie: cookie } });
     expect(deletedMetadata.status).toBe(200);
-    expect(await deletedMetadata.json()).toMatchObject({ id, mode: "public" });
+    expect(await deletedMetadata.json()).toMatchObject({ id: shareId, mode: "public" });
     expect(deletedMetadata.headers.get("Set-Cookie")).toContain("Max-Age=0");
   });
 
   test("invalidates an existing share authorization after settings change", async () => {
     const app = setup();
     const entry = app.record();
-    entry.encryptedCode = await encryptCode("open1234", id, entry.revision, key);
+    entry.encryptedCode = await encryptCode("open1234", shareId, entry.revision, key);
     await saveRecord(app.env, entry);
     const token = await signToken(app.env.SESSION_SECRET, {
-      scope: "download", id, revision: "previous-revision", exp: Date.now() + 60000,
+      scope: "download", id: shareId, revision: "previous-revision", exp: Date.now() + 60000,
     });
-    const cookie = "r2_access_" + id + "=" + token;
-    const response = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
-    expect(await response.json()).toEqual({ id, mode: "protected" });
+    const cookie = "r2_access_" + shareId + "=" + token;
+    const response = await app.request("/api/files/" + shareId, { headers: { Cookie: cookie } });
+    expect(await response.json()).toEqual({ id: shareId, mode: "protected" });
     expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
   });
 
   test("requires the same access-code authorization for inline previews", async () => {
     const app = setup();
     const entry = app.record({ filename: "notes.txt", mime: "text/plain" });
-    entry.encryptedCode = await encryptCode("open1234", id, entry.revision, key);
+    entry.encryptedCode = await encryptCode("open1234", shareId, entry.revision, key);
     await saveRecord(app.env, entry);
     app.objects.set(dataKey(id), "secret");
-    const path = "/api/files/" + id + "/preview";
+    const path = "/api/files/" + shareId + "/preview";
 
     const denied = await app.request(path);
     expect(denied.status).toBe(403);
     expect(await denied.json()).toEqual({ error: "Enter the access code first" });
 
-    const unlock = await app.request("/api/files/" + id + "/unlock", {
+    const unlock = await app.request("/api/files/" + shareId + "/unlock", {
       method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify({ code: "open1234" }),
@@ -277,7 +278,7 @@ describe("independent file and share expiration", () => {
     const entry = app.record({ mode: "public", filename: "page.html", mime: "text/html" });
     await saveRecord(app.env, entry);
     app.objects.set(dataKey(id), "<script>alert(1)</script>");
-    const url = "/api/files/" + id + "/preview";
+    const url = "/api/files/" + shareId + "/preview";
     const html = await app.request(url);
     expect(html.status).toBe(200);
     expect(html.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
@@ -297,7 +298,7 @@ describe("independent file and share expiration", () => {
     });
     await saveRecord(app.env, entry);
     app.objects.set(dataKey(id), "secret");
-    const response = await app.request("/api/files/" + id + "/preview");
+    const response = await app.request("/api/files/" + shareId + "/preview");
     expect(response.status).toBe(404);
   });
 
@@ -306,22 +307,22 @@ describe("independent file and share expiration", () => {
     const checksums = { sha256: "a".repeat(64) };
     const originalModifiedAt = "2023-07-05T14:25:12.000Z";
     const entry = app.record({ checksums, originalModifiedAt });
-    entry.encryptedCode = await encryptCode("open1234", id, entry.revision, key);
+    entry.encryptedCode = await encryptCode("open1234", shareId, entry.revision, key);
     await saveRecord(app.env, entry);
 
-    const before = await app.request("/api/files/" + id);
-    expect(await before.json()).toEqual({ id, mode: "protected" });
+    const before = await app.request("/api/files/" + shareId);
+    expect(await before.json()).toEqual({ id: shareId, mode: "protected" });
 
-    const unlock = await app.request("/api/files/" + id + "/unlock", {
+    const unlock = await app.request("/api/files/" + shareId + "/unlock", {
       method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify({ code: "open1234" }),
     });
     expect(unlock.status).toBe(200);
     const cookie = unlock.headers.get("Set-Cookie")!.split(";")[0];
-    const after = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
+    const after = await app.request("/api/files/" + shareId, { headers: { Cookie: cookie } });
     expect(await after.json()).toEqual({
-      id, filename: entry.filename, size: entry.size, mime: entry.mime,
+      id: shareId, filename: entry.filename, size: entry.size, mime: entry.mime,
       checksums, originalModifiedAt, mode: "protected",
     });
   });
@@ -360,7 +361,7 @@ describe("independent file and share expiration", () => {
       }),
     });
     expect(init.status).toBe(200);
-    const created = await init.json() as { id: string; token: string };
+    const created = await init.json() as { id: string; shareId: string; token: string };
     const result = await app.request("/secret/api/uploads/" + created.id, {
       method: "PUT", headers: { Origin: origin, Cookie: cookie, "X-Upload-Token": created.token },
       body: "secret",
@@ -371,7 +372,9 @@ describe("independent file and share expiration", () => {
     expect(stored?.shareExpiresAt).not.toBeNull();
     expect(stored?.originalModifiedAt).toBe("2024-04-22T09:12:30.000Z");
     expect(stored?.checksums).toEqual({ sha256: digest });
-    const response = await app.request("/api/files/" + created.id);
+    expect(created.id).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(created.shareId).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
+    const response = await app.request("/api/files/" + created.shareId);
     const details = await response.json() as { checksums: { sha256: string } };
     expect(details.checksums).toEqual({ sha256: digest });
   });
@@ -379,9 +382,9 @@ describe("independent file and share expiration", () => {
   test("does not reveal expiration timestamps through public metadata", async () => {
     const app = setup();
     await saveRecord(app.env, app.record({ mode: "public", shareExpiresAt: null, expiresAt: null }));
-    const result = await app.request("/api/files/" + id);
+    const result = await app.request("/api/files/" + shareId);
     expect(await result.json()).toEqual({
-      id, filename: "private-document.txt", size: 6, mime: "text/plain", mode: "public",
+      id: shareId, filename: "private-document.txt", size: 6, mime: "text/plain", mode: "public",
     });
     const sharePage = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
     expect(sharePage).not.toContain("timeText");
@@ -397,10 +400,10 @@ describe("independent file and share expiration", () => {
     }));
     app.objects.set(dataKey(id), "secret");
     expect((await app.request("/" + id)).status).toBe(200);
-    const expiredMetadata = await app.request("/api/files/" + id);
+    const expiredMetadata = await app.request("/api/files/" + shareId);
     expect(expiredMetadata.status).toBe(200);
-    expect(await expiredMetadata.json()).toMatchObject({ id, mode: "public" });
-    expect((await app.request("/api/files/" + id + "/download")).status).toBe(404);
+    expect(await expiredMetadata.json()).toMatchObject({ id: shareId, mode: "public" });
+    expect((await app.request("/api/files/" + shareId + "/download")).status).toBe(404);
     expect(await cleanupExpired(app.env)).toBe(0);
     expect(await getRecord(app.env, id)).not.toBeNull();
     expect(app.objects.has(dataKey(id))).toBe(true);
@@ -428,7 +431,7 @@ describe("independent file and share expiration", () => {
     app.objects.set(dataKey(id), "secret");
     expect(await cleanupExpired(app.env)).toBe(0);
     expect((await app.request("/" + id)).status).toBe(200);
-    expect((await app.request("/api/files/" + id + "/download")).status).toBe(200);
+    expect((await app.request("/api/files/" + shareId + "/download")).status).toBe(200);
   });
 
   test("uploads retain files permanently and validate share expiration independently", async () => {
@@ -457,16 +460,16 @@ describe("independent file and share expiration", () => {
       expiresAt: null,
       shareExpiresAt: new Date(Date.now() - 3600000).toISOString(),
     }));
-    const previouslyExpired = await app.request("/api/files/" + id);
+    const previouslyExpired = await app.request("/api/files/" + shareId);
     expect(previouslyExpired.status).toBe(200);
-    expect(await previouslyExpired.json()).toMatchObject({ id, mode: "public" });
+    expect(await previouslyExpired.json()).toMatchObject({ id: shareId, mode: "public" });
     const patch = await app.request("/secret/api/files/" + id, {
       method: "PATCH",
       headers: { Origin: origin, "Content-Type": "application/json", Cookie: await app.adminCookie() },
       body: JSON.stringify({ mode: "public", shareExpiresIn: 0 }),
     });
     expect(patch.status).toBe(200);
-    expect((await app.request("/api/files/" + id)).status).toBe(200);
+    expect((await app.request("/api/files/" + shareId)).status).toBe(200);
   });
   test("rejects a second upload using the same signed session", async () => {
     const app = setup();
