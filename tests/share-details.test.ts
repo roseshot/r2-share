@@ -119,7 +119,7 @@ describe("server-generated missing share metadata", () => {
 
   test("does not expose a missing share ID through the download error message", () => {
     const frontend = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
-    expect(frontend).toContain("Download unavailable. Please try again.");
+    expect(frontend).toContain("Server overloaded. Please try again.");
     expect(frontend).not.toContain("This share link or file is no longer available.");
     expect(frontend).not.toContain("response.status === 404");
     expect(frontend).toContain('if (response.status === 403) {');

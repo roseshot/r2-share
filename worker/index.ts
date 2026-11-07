@@ -607,7 +607,9 @@ app.post("/:entry/api/files/:id/virustotal/upload", async c => {
   ).bind(sha256).first<{ upload_file_id: string | null; upload_submitted_at: number | null }>();
   if (!row) return jsonError("VirusTotal lookup is unavailable", 409);
   if (row.upload_submitted_at !== null) return c.json({ status: "submitted" });
-  if (row.upload_file_id !== null) return c.json({ status: "authorized" });
+  if (row.upload_file_id === id) return c.json({ status: "authorized" });
+  if (row.upload_file_id !== null)
+    return jsonError("Another file with the same SHA-256 is already authorized", 409);
   return jsonError("VirusTotal upload authorization could not be saved", 409);
 });
 
