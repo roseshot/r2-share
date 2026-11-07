@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { monitorUpload } from "./integrity";
+import { importRemoteFile, RemoteImportError, validateRemoteUrl } from "./url-import";
 import { previewFormat } from "../src/preview-types";
 import { parseByteRange } from "./ranges";
 import { getCachedVirusTotalReport, processVirusTotalQueue } from "./virustotal";
@@ -531,6 +532,40 @@ app.post("/:entry/api/uploads", async c => {
     scope: "upload", record, shareId, exp: age(600)
   });
   return c.json({ id, shareId, token, code: code ?? null });
+});
+
+// Administrator-only server-side import; public upload pages do not expose it.
+app.post("/:entry/api/import-url", async c => {
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || Array.isArray(body) ||
+      Object.keys(body).some(key => ![
+        "url", "filename", "storageId", "mode", "code", "shareExpiresIn",
+      ].includes(key)) ||
+      typeof body.url !== "string" || body.url.length > 2048 ||
+      (body.filename !== undefined && typeof body.filename !== "string") ||
+      !validStorageId(body.storageId) ||
+      (body.mode !== "public" && body.mode !== "protected") ||
+      !EXPIRATIONS.some(n => n === body.shareExpiresIn) ||
+      (body.code !== undefined && (typeof body.code !== "string" ||
+        body.code.length > 64 || (body.mode === "protected" &&
+        body.code.trim().length > 0 && body.code.trim().length < 4)))) {
+    return jsonError("Invalid remote import parameters");
+  }
+  try {
+    // Validate before requesting the remote server. Redirects are checked by
+    // importRemoteFile before each subsequent network request as well.
+    validateRemoteUrl(body.url as string);
+    const imported = await importRemoteFile(c.env, {
+      url: body.url as string, filename: body.filename as string | undefined,
+      storageId: body.storageId as string,
+      mode: body.mode as Mode, code: body.code as string | undefined,
+      shareExpiresIn: body.shareExpiresIn as number,
+    });
+    return c.json(imported, 201);
+  } catch (error) {
+    if (error instanceof RemoteImportError) return jsonError(error.message, error.status);
+    return jsonError("Unable to import remote file", 503);
+  }
 });
 
 app.put("/:entry/api/uploads/:id", async c => {

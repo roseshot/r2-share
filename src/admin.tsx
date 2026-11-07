@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import {
   ArrowDownToLine, Clock3, FolderOpen,
-  FileUp, LoaderCircle, LockKeyhole, LogOut,
+  FileUp, Link2, LoaderCircle, LockKeyhole, LogOut,
   ShieldAlert, ShieldCheck, Trash2, X
 } from "lucide-react";
 import { Badge, Button, Card, Input, Select, buttonStyles } from "./ui";
@@ -92,6 +92,10 @@ export default function Admin() {
   const [progress, setProgress] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
+  const [remoteUrl, setRemoteUrl] = useState("");
+  const [remoteFilename, setRemoteFilename] = useState("");
+  const [importingUrl, setImportingUrl] = useState(false);
+  const [remoteError, setRemoteError] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
   const [editKind, setEditKind] = useState<"name" | "expiration">("name");
   const [editFilename, setEditFilename] = useState("");
@@ -244,7 +248,7 @@ export default function Admin() {
 
   async function upload(event: FormEvent) {
     event.preventDefault();
-    if (!selected.length || uploading || readingFiles) return;
+    if (!selected.length || uploading || importingUrl || readingFiles) return;
     if (!storageIds.includes(storageId)) {
       setError("Configure an object storage backend before uploading"); return;
     }
@@ -335,6 +339,34 @@ export default function Admin() {
     if (failures.length) setError(failures.length + " file(s) failed. Retry the remaining queue.");
     setUploading(false); setProcessing(false); setCurrentFilename("");
     setProgress(0);
+  }
+
+  async function importFromUrl(event: FormEvent) {
+    event.preventDefault();
+    if (importingUrl || uploading || readingFiles) return;
+    if (!storageIds.includes(storageId)) {
+      setRemoteError("Choose a configured Storage ID before importing"); return;
+    }
+    setImportingUrl(true);
+    setRemoteError("");
+    try {
+      const imported = await requestJson<UploadResult>(api("/import-url"), {
+        method: "POST", ...jsonBody({
+          url: remoteUrl.trim(), filename: remoteFilename.trim() || undefined,
+          storageId, mode, shareExpiresIn: shareDuration,
+          code: mode === "protected" && code.trim() ? code.trim() : undefined,
+        }),
+      });
+      setUploadResults(previous => [...previous, imported]);
+      setRemoteUrl("");
+      setRemoteFilename("");
+      successToast("File imported from URL", imported.code ?? undefined);
+      await refresh();
+    } catch (error) {
+      setRemoteError(error instanceof Error ? error.message : "Remote import failed");
+    } finally {
+      setImportingUrl(false);
+    }
   }
 
   async function checkVirusTotal(record: ManagedFile) {
@@ -538,7 +570,7 @@ export default function Admin() {
             <div>
               <label htmlFor="upload-storage-id" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Storage ID</label>
               {storageIds.length ? (
-                <Select id="upload-storage-id" value={storageId} disabled={uploading}
+                <Select id="upload-storage-id" value={storageId} disabled={uploading || importingUrl}
                   onValueChange={setStorageId}
                   options={storageIds.map(id => ({ value: id, label: id }))} />
               ) : (
@@ -553,7 +585,7 @@ export default function Admin() {
             <div><label htmlFor="upload-share-expiration" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Share expiration</label>
               <Select id="upload-share-expiration" value={String(shareDuration)}
                 onValueChange={value => setShareDuration(Number(value))}
-                disabled={uploading} options={durations.map(d => ({ value: String(d.seconds), label: d.label }))} />
+                disabled={uploading || importingUrl} options={durations.map(d => ({ value: String(d.seconds), label: d.label }))} />
             </div>
             <p className="text-xs leading-5 text-zinc-500">
               Files remain stored by default. Share expiration disables only that link, not the file.
@@ -561,7 +593,7 @@ export default function Admin() {
             </p>
             <div><label htmlFor="upload-access" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Download access</label>
               <Select id="upload-access" value={mode} onValueChange={value => setMode(value as Mode)}
-                disabled={uploading} options={[
+                disabled={uploading || importingUrl} options={[
                   { value: "public", label: "Public link" },
                   { value: "protected", label: "Access code required" },
                 ]} />
@@ -569,7 +601,7 @@ export default function Admin() {
             {mode === "protected" && <div>
               <label htmlFor="upload-code" className="mb-2 block text-sm text-zinc-700 dark:text-zinc-300">Access code <span className="text-zinc-500">(leave blank to generate)</span></label>
               <Input id="upload-code" value={code} onChange={e => setCode(e.target.value)} minLength={4} maxLength={64}
-                autoComplete="off" placeholder="At least 4 characters; generated codes have 8" disabled={uploading}/>
+                autoComplete="off" placeholder="At least 4 characters; generated codes have 8" disabled={uploading || importingUrl}/>
             </div>}
             {uploading && <div>
               <div role="status" aria-live="polite"
@@ -586,11 +618,40 @@ export default function Admin() {
               </div>
             </div>}
             <Button className="w-full" type="submit"
-              disabled={!selected.length || uploading || readingFiles || !storageIds.includes(storageId)}>
+              disabled={!selected.length || uploading || importingUrl || readingFiles || !storageIds.includes(storageId)}>
               {uploading ? <LoaderCircle size={17} className="animate-spin"/> : <FileUp size={17}/>}
               {uploading ? (processing ? "Processing file…" : "Uploading…") :
                 "Upload " + selected.length + (selected.length === 1 ? " file" : " files") + " and create share links"}
             </Button>
+          </form>
+          <form onSubmit={event => { void importFromUrl(event); }}
+            className="mt-7 space-y-3 border-t border-zinc-200 pt-6 dark:border-white/10"
+            aria-label="Import file from URL">
+            <div className="flex items-center gap-2">
+              <Link2 size={18} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
+              <h3 className="text-sm font-semibold">Import from URL</h3>
+            </div>
+            <p className="text-xs leading-5 text-zinc-500">
+              The Worker follows redirects and saves the file to the selected Storage ID.
+              Leave the filename blank to use the final URL path.
+              The 90 MiB limit, share expiration and access settings above also apply.
+            </p>
+            <label className="block text-sm" htmlFor="remote-file-url">File URL</label>
+            <Input id="remote-file-url" type="url" value={remoteUrl}
+              onChange={event => setRemoteUrl(event.target.value)} required maxLength={2048}
+              placeholder="https://example.com/download/file.zip"
+              disabled={importingUrl || uploading} />
+            <label className="block text-sm" htmlFor="remote-filename">Filename (optional)</label>
+            <Input id="remote-filename" value={remoteFilename}
+              onChange={event => setRemoteFilename(event.target.value)} maxLength={240}
+              placeholder="Use filename from final URL" disabled={importingUrl || uploading} />
+            <Button type="submit" className="w-full"
+              disabled={importingUrl || uploading || readingFiles || !remoteUrl.trim() ||
+                !storageIds.includes(storageId)}>
+              {importingUrl ? <LoaderCircle size={17} className="animate-spin" /> : <Link2 size={17} />}
+              {importingUrl ? "Importing remote file…" : "Download URL to bucket"}
+            </Button>
+            <ErrorText message={remoteError} />
           </form>
           {uploadFailures.length > 0 && <section aria-label="Upload errors" role="alert"
             className="mt-4 rounded-xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-700 dark:text-red-300">

@@ -4,7 +4,7 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 
 ## Features
 
-- Upload multiple files, drag in folders as ZIP archives, or paste images, files, and plain text (**90 MiB per upload**).
+- Upload multiple files, drag in folders as ZIP archives, paste images, files, and plain text, or **import directly from a remote URL** (**90 MiB per file**).
 - Choose a named storage ID at upload time; configure up to **32** B2, R2, or AWS S3 storage instances.
 - Create multiple links for one file, each with its own admin-only name, public/protected access, optional access code, and expiration.
 - Create public upload pages with time expiry and/or a maximum number of successful uploads; contributors need no admin login.
@@ -132,6 +132,27 @@ then retains a separate share URL, copy/open actions, access code, and expiratio
 for every successful file. Failed files remain queued for retry; successful files
 are not uploaded again. If storage has not been configured, **Configure storage**
 jumps to the setup form.
+
+### Import from URL (Admin only)
+
+The Admin **Import from URL** form downloads a remote HTTP/HTTPS file through the
+Worker directly to the selected private B2, R2, or AWS S3 bucket, following up to
+five redirects. A manually provided filename takes priority; otherwise the
+filename comes from the **final** URL path (not the initial URL). The import
+inherits the selected Storage ID, share expiration, access mode and optional
+access code. Each successful import creates a UUID v4 File ID, a separate
+short Share ID, a verified SHA-256 and a VirusTotal hash-only queue entry.
+The share's VirusTotal display remains **off by default**.
+
+Imports are streamed and limited to **90 MiB**; the remote server must supply
+a usable `Content-Length` on GET (or on a fallback HEAD request). Chunked-only
+responses without a known length are not supported because S3 requires a
+fixed-length signed PUT. Remote servers must provide uncompressed bytes. Only
+public HTTP/HTTPS hosts are allowed; IP literals, local/reserved hostnames,
+credentials and nonstandard ports are rejected on **every redirect**. Do not
+import from untrusted domains: application-level hostname checks cannot fully
+prevent DNS rebinding. Failed imports remove their upload reservation and
+partial bucket objects. **Public upload pages do not offer URL import.**
 
 ## Public upload pages
 
