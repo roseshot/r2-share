@@ -189,7 +189,8 @@ describe("administrator remote URL import", () => {
   test("rolls back a short response and a bucket write failure", async () => {
     const app = setup();
     const short: typeof fetch = async () => fileResponse("abc", { "Content-Length": "5" });
-    await expect(importRemoteFile(app.env, options, short)).rejects.toThrow("save remote");
+    await expect(importRemoteFile(app.env, options, short))
+      .rejects.toThrow("Remote file size does not match Content-Length");
     expect(app.objects.size).toBe(0);
     expect(await app.dbRows("SELECT * FROM upload_sessions")).toHaveLength(0);
     expect(await app.dbRows("SELECT * FROM files")).toHaveLength(0);
