@@ -266,7 +266,7 @@ app.patch("/:entry/api/settings", async c => {
 async function verifyStorage(env: Bindings, storage: StorageConfig): Promise<boolean> {
   const candidate = Object.assign(Object.create(env) as Bindings, { STORAGES: [storage] });
   try {
-    await getObjectStore(candidate, storage.id).list({ prefix: "files/", limit: 1 });
+    await getObjectStore(candidate, storage.id).list({ prefix: "tuckbox/", limit: 1 });
     return true;
   } catch { return false; }
 }
@@ -294,7 +294,9 @@ app.patch("/:entry/api/settings/storages/:storageId", async c => {
   if (!current || !existing) return jsonError("Storage ID not found", 404);
   const allowed = existing.backend === "b2"
     ? ["bucket", "region", "keyId", "applicationKey"]
-    : ["bucket", "accountId", "accessKeyId", "secretAccessKey"];
+    : existing.backend === "s3"
+      ? ["bucket", "region", "accessKeyId", "secretAccessKey"]
+      : ["bucket", "accountId", "accessKeyId", "secretAccessKey"];
   if (Object.keys(body).some(key => !allowed.includes(key)) ||
       Object.values(body).some(value => typeof value !== "string")) {
     return jsonError("Invalid storage configuration");
@@ -302,7 +304,8 @@ app.patch("/:entry/api/settings/storages/:storageId", async c => {
   const updatedStorage = { ...existing, ...body } as StorageConfig;
   try { validateStorage(updatedStorage); } catch { return jsonError("Invalid storage configuration"); }
   const changedLocation = existing.bucket !== updatedStorage.bucket ||
-    (existing.backend === "b2" && updatedStorage.backend === "b2" &&
+    ((existing.backend === "b2" || existing.backend === "s3") &&
+      (updatedStorage.backend === "b2" || updatedStorage.backend === "s3") &&
       existing.region !== updatedStorage.region) ||
     (existing.backend === "r2" && updatedStorage.backend === "r2" &&
       existing.accountId !== updatedStorage.accountId);

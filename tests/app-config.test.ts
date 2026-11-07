@@ -20,6 +20,13 @@ const r2: StorageConfig = {
   accountId: "a".repeat(32), accessKeyId: "r2-key-1234", secretAccessKey: "r2-secret-1234",
 };
 const r2Other: StorageConfig = { ...r2, id: "r2-secondary", bucket: "other-r2" };
+const s3: StorageConfig = {
+  id: "aws-primary", backend: "s3", bucket: "my-private-aws-bucket",
+  region: "us-east-1", accessKeyId: "aws-key-1234", secretAccessKey: "aws-secret-1234",
+};
+const s3Other: StorageConfig = {
+  ...s3, id: "aws-secondary", bucket: "other-private-aws-bucket", region: "ap-southeast-2",
+};
 
 function fixture() {
   const env = {
@@ -37,7 +44,9 @@ function fixture() {
     delete: async () => {},
     list: async () => ({ objects: [], truncated: false }),
   };
-  for (const storage of [b2, b2Other, r2, r2Other]) bindObjectStore(env, store, storage.id);
+  for (const storage of [b2, b2Other, r2, r2Other, s3, s3Other]) {
+    bindObjectStore(env, store, storage.id);
+  }
   const request = (path: string, init: RequestInit = {}) =>
     handler.fetch(new Request(origin + path, init), env, {} as ExecutionContext);
   const post = (path: string, body: object, cookie: string, method = "POST") =>
@@ -57,10 +66,10 @@ function fixture() {
 }
 
 describe("encrypted storage configurations", () => {
-  test("encrypts multiple independent B2/R2 storage IDs", async () => {
-    const settings = { storages: [b2, b2Other, r2, r2Other], virusTotalApiKey: "api-key" };
+  test("encrypts multiple independent B2, R2, and AWS S3 storage IDs", async () => {
+    const settings = { storages: [b2, b2Other, r2, r2Other, s3, s3Other], virusTotalApiKey: "api-key" };
     const cipher = await encryptAppSettings(master, settings);
-    for (const credential of [b2.applicationKey, r2.secretAccessKey, "api-key"]) {
+    for (const credential of [b2.applicationKey, r2.secretAccessKey, s3.secretAccessKey, "api-key"]) {
       expect(cipher).not.toContain(credential);
     }
     expect(await decryptAppSettings(master, cipher)).toEqual(settings);
@@ -69,6 +78,19 @@ describe("encrypted storage configurations", () => {
     await expect(encryptAppSettings(master, { storages: [b2, b2] })).rejects.toThrow();
     await expect(encryptAppSettings(master, { storages: [{ ...b2, id: "Bad ID" }] }))
       .rejects.toThrow();
+  });
+
+  test("allows unlisted AWS regions but rejects injected endpoint components", async () => {
+    const future = { ...s3, region: "future-east-8" };
+    const encrypted = await encryptAppSettings(master, { storages: [future] });
+    expect((await decryptAppSettings(master, encrypted)).storages).toEqual([future]);
+    for (const region of ["us-east-1@evil.example.com", "us-east-1/abc",
+      "us-east-1?query=1", ""]) {
+      await expect(encryptAppSettings(master, { storages: [{ ...s3, region }] })).rejects.toThrow();
+    }
+    await expect(encryptAppSettings(master, {
+      storages: [{ ...s3, bucket: "bad/bucket" }],
+    })).rejects.toThrow();
   });
 
   test("derives separate session and code keys", async () => {
@@ -84,7 +106,7 @@ describe("encrypted storage configurations", () => {
     const cookie = await app.login();
     const empty = await app.request("/private/api/settings", { headers: { Cookie: cookie } });
     expect(await empty.json()).toEqual({ storages: [], storageUsage: [], virusTotalEnabled: false });
-    for (const storage of [b2, b2Other, r2, r2Other]) {
+    for (const storage of [b2, b2Other, r2, r2Other, s3, s3Other]) {
       const response = await app.post("/settings/storages", storage, cookie);
       expect(response.status).toBe(201);
     }
@@ -92,18 +114,22 @@ describe("encrypted storage configurations", () => {
     expect(duplicate.status).toBe(409);
 
     const stored = await readAppSettings(app.env);
-    expect(stored?.storages).toEqual([b2, b2Other, r2, r2Other]);
+    expect(stored?.storages).toEqual([b2, b2Other, r2, r2Other, s3, s3Other]);
     const row = await app.env.DB.prepare("SELECT payload FROM app_settings WHERE id = 1")
       .first<{ payload: string }>();
     expect(row!.payload).not.toContain(b2.applicationKey);
     expect(row!.payload).not.toContain(r2.secretAccessKey);
+    expect(row!.payload).not.toContain(s3.secretAccessKey);
     const settings = await app.request("/private/api/settings", { headers: { Cookie: cookie } });
     expect(settings.status).toBe(200);
     const text = await settings.text();
     expect(text).toContain("b2-secondary");
     expect(text).toContain("r2-secondary");
+    expect(text).toContain("aws-secondary");
+    expect(text).toContain("ap-southeast-2");
     expect(text).not.toContain(b2.applicationKey);
     expect(text).not.toContain(r2.secretAccessKey);
+    expect(text).not.toContain(s3.secretAccessKey);
     expect(text).not.toContain("strong-admin-password");
   });
 
@@ -136,6 +162,27 @@ describe("encrypted storage configurations", () => {
       filename: "test.txt", size: 4, mode: "public",
       shareExpiresIn: 3600, storageId: "unknown-id",
     }, cookie)).status).toBe(503);
+  });
+
+  test("rotates AWS credentials and prevents moving storage with active uploads", async () => {
+    const app = fixture();
+    const cookie = await app.login();
+    expect((await app.post("/settings/storages", s3, cookie)).status).toBe(201);
+    expect((await app.post("/settings/storages/aws-primary",
+      { secretAccessKey: "rotated-aws-secret" }, cookie, "PATCH")).status).toBe(200);
+    expect((await readAppSettings(app.env))?.storages[0]).toMatchObject({
+      region: "us-east-1", secretAccessKey: "rotated-aws-secret",
+    });
+    expect((await app.post("/uploads", {
+      filename: "aws.txt", size: 4, mode: "public",
+      shareExpiresIn: 3600, storageId: "aws-primary",
+    }, cookie)).status).toBe(200);
+    for (const change of [{ bucket: "different-bucket" }, { region: "eu-west-1" }]) {
+      expect((await app.post("/settings/storages/aws-primary",
+        change, cookie, "PATCH")).status).toBe(409);
+    }
+    expect((await app.post("/settings/storages/aws-primary",
+      { accountId: "a".repeat(32) }, cookie, "PATCH")).status).toBe(400);
   });
 
   test("removes unused IDs and checks permissions on every mutation", async () => {

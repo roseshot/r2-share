@@ -14,10 +14,11 @@ export interface Bindings {
 }
 
 export type Mode = "public" | "protected";
-export type StorageBackend = "b2" | "r2";
+export type StorageBackend = "b2" | "r2" | "s3";
 export type StorageConfig =
   | { id: string; backend: "b2"; bucket: string; region: string; keyId: string; applicationKey: string }
-  | { id: string; backend: "r2"; bucket: string; accountId: string; accessKeyId: string; secretAccessKey: string };
+  | { id: string; backend: "r2"; bucket: string; accountId: string; accessKeyId: string; secretAccessKey: string }
+  | { id: string; backend: "s3"; bucket: string; region: string; accessKeyId: string; secretAccessKey: string };
 export const validStorageId = (value: unknown): value is string =>
   typeof value === "string" && /^[a-z][a-z0-9_-]{1,31}$/.test(value);
 export interface EncryptedCode { iv: string; data: string }

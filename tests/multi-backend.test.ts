@@ -17,6 +17,10 @@ const storages: StorageConfig[] = [
     accountId: "a".repeat(32), accessKeyId: "r2-key", secretAccessKey: "r2-secret" },
   { id: "r2-beta", backend: "r2", bucket: "second-r2-bucket",
     accountId: "a".repeat(32), accessKeyId: "r2-key", secretAccessKey: "r2-secret" },
+  { id: "aws-alpha", backend: "s3", bucket: "first-aws-bucket",
+    region: "us-east-1", accessKeyId: "aws-key", secretAccessKey: "aws-secret" },
+  { id: "aws-beta", backend: "s3", bucket: "second-aws-bucket",
+    region: "eu-west-1", accessKeyId: "aws-key", secretAccessKey: "aws-secret" },
 ];
 
 function fixture(ids: string[] = storages.map(s => s.id)) {
@@ -108,7 +112,7 @@ describe("multiple object storage IDs", () => {
     expect(() => r2ObjectUrl(account, "evil/path")).toThrow();
   });
 
-  test("routes four distinct IDs including two B2 and two R2 instances", async () => {
+  test("routes six distinct IDs including two each of B2, R2, and AWS S3", async () => {
     const app = fixture();
     for (const storage of storages) {
       const text = "file for " + storage.id;
@@ -161,9 +165,11 @@ describe("multiple object storage IDs", () => {
     expect(byId.get("r2-beta")).toMatchObject({ usedBytes: 4, fileCount: 1 });
     expect(byId.get("b2-beta")).toMatchObject({ usedBytes: 0, fileCount: 0 });
     expect(byId.get("r2-alpha")).toMatchObject({ usedBytes: 0, fileCount: 0 });
+    expect(byId.get("aws-alpha")).toMatchObject({ usedBytes: 0, fileCount: 0 });
+    expect(byId.get("aws-beta")).toMatchObject({ usedBytes: 0, fileCount: 0 });
     expect(Date.parse(byId.get("b2-alpha")!.calculatedAt!)).toBeGreaterThan(0);
     expect(await app.env.DB.prepare("SELECT COUNT(*) AS count FROM storage_usage")
-      .first<{ count: number }>()).toEqual({ count: 4 });
+      .first<{ count: number }>()).toEqual({ count: 6 });
 
     await app.upload("b2-beta", "new");
     expect((await settingsUsage()).find(row => row.storageId === "b2-beta")?.usedBytes).toBe(0);
@@ -208,6 +214,7 @@ describe("multiple object storage IDs", () => {
     expect((await app.init(undefined, "abcd")).status).toBe(400);
     expect((await app.init("b2", "abcd")).status).toBe(503);
     expect((await app.init("r2", "abcd")).status).toBe(503);
+    expect((await app.init("s3", "abcd")).status).toBe(503);
     expect((await app.init("unknown", "abcd")).status).toBe(503);
     const other = fixture(["r2-beta"]);
     expect((await other.init("b2-alpha", "abcd")).status).toBe(503);
@@ -251,6 +258,7 @@ describe("multiple object storage IDs", () => {
     const app = fixture();
     expect(getObjectStore(app.env, "b2-alpha")).not.toBe(getObjectStore(app.env, "b2-beta"));
     expect(getObjectStore(app.env, "r2-alpha")).not.toBe(getObjectStore(app.env, "r2-beta"));
+    expect(getObjectStore(app.env, "aws-alpha")).not.toBe(getObjectStore(app.env, "aws-beta"));
     expect(() => getObjectStore(app.env, "nonexistent")).toThrow();
   });
 });

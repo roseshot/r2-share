@@ -6,7 +6,8 @@ import type { StorageBackend } from "./lib";
 
 type StorageSummary =
   | { id: string; backend: "b2"; bucket: string; region: string; keyId: string }
-  | { id: string; backend: "r2"; bucket: string; accountId: string; accessKeyId: string };
+  | { id: string; backend: "r2"; bucket: string; accountId: string; accessKeyId: string }
+  | { id: string; backend: "s3"; bucket: string; region: string; accessKeyId: string };
 
 interface CurrentSettings {
   storages: StorageSummary[];
@@ -56,7 +57,9 @@ export default function AdminSettings({ api, onSaved }: {
       ...emptyForm, ...storage,
       ...(storage.backend === "b2"
         ? { region: storage.region, keyId: storage.keyId }
-        : { accountId: storage.accountId, accessKeyId: storage.accessKeyId }),
+        : storage.backend === "s3"
+          ? { region: storage.region, accessKeyId: storage.accessKeyId }
+          : { accountId: storage.accountId, accessKeyId: storage.accessKeyId }),
     });
     setError("");
   }
@@ -79,8 +82,11 @@ export default function AdminSettings({ api, onSaved }: {
       const config = form.backend === "b2"
         ? { bucket: form.bucket, region: form.region, keyId: form.keyId,
           ...(form.applicationKey ? { applicationKey: form.applicationKey } : {}) }
-        : { bucket: form.bucket, accountId: form.accountId, accessKeyId: form.accessKeyId,
-          ...(form.secretAccessKey ? { secretAccessKey: form.secretAccessKey } : {}) };
+        : form.backend === "s3"
+          ? { bucket: form.bucket, region: form.region, accessKeyId: form.accessKeyId,
+            ...(form.secretAccessKey ? { secretAccessKey: form.secretAccessKey } : {}) }
+          : { bucket: form.bucket, accountId: form.accountId, accessKeyId: form.accessKeyId,
+            ...(form.secretAccessKey ? { secretAccessKey: form.secretAccessKey } : {}) };
       await send(api("/settings/storages" + (editing ? "/" + editing : "")),
         editing ? "PATCH" : "POST",
         editing ? config : { id: form.id, backend: form.backend, ...config });
@@ -122,7 +128,7 @@ export default function AdminSettings({ api, onSaved }: {
     <Card id="object-storage-settings" className="mt-7 scroll-mt-6 p-6 sm:p-8">
       <h2 className="text-lg font-semibold">Object storage settings</h2>
       <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-        Each storage has a unique, permanent ID and independent B2 or R2 credentials,
+        Each storage has a unique, permanent ID and independent B2, R2, or AWS S3 credentials,
         encrypted in D1. Choose the ID when uploading. Credentials can be rotated,
         but a storage in use cannot be deleted or pointed at another bucket.
       </p>
@@ -136,7 +142,7 @@ export default function AdminSettings({ api, onSaved }: {
                 <div className="min-w-0">
                   <div className="font-semibold"><code>{storage.id}</code>
                     <span className="ml-2 text-xs font-normal text-zinc-500">
-                      {storage.backend === "b2" ? "Backblaze B2" : "Cloudflare R2"}
+                      {storage.backend === "b2" ? "Backblaze B2" : storage.backend === "s3" ? "AWS S3" : "Cloudflare R2"}
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-zinc-500">{storage.bucket}</p>
@@ -157,7 +163,8 @@ export default function AdminSettings({ api, onSaved }: {
                 <label htmlFor="storage-provider" className="mb-1 block text-sm font-medium">Provider</label>
                 <Select id="storage-provider" value={form.backend} disabled={editing !== null}
                   onValueChange={value => change("backend")(value)}
-                  options={[{ value: "b2", label: "Backblaze B2" }, { value: "r2", label: "Cloudflare R2" }]} />
+                  options={[{ value: "b2", label: "Backblaze B2" }, { value: "r2", label: "Cloudflare R2" },
+                     { value: "s3", label: "AWS S3" }]} />
               </div>
               <Field label="Bucket" value={form.bucket} setValue={change("bucket")} />
               {form.backend === "b2" ? (
@@ -165,6 +172,13 @@ export default function AdminSettings({ api, onSaved }: {
                   <Field label="B2 region" value={form.region} setValue={change("region")} placeholder="us-west-004" />
                   <Field label="B2 key ID" value={form.keyId} setValue={change("keyId")} />
                   <Field label="B2 application key" value={form.applicationKey} setValue={change("applicationKey")}
+                    secret placeholder={editing ? "Leave blank to keep current key" : "Required"} />
+                </>
+              ) : form.backend === "s3" ? (
+                <>
+                  <Field label="AWS region" value={form.region} setValue={change("region")} placeholder="us-east-1" />
+                  <Field label="AWS access key ID" value={form.accessKeyId} setValue={change("accessKeyId")} />
+                  <Field label="AWS secret access key" value={form.secretAccessKey} setValue={change("secretAccessKey")}
                     secret placeholder={editing ? "Leave blank to keep current key" : "Required"} />
                 </>
               ) : (

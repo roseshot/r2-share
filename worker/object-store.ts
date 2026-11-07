@@ -74,8 +74,35 @@ export function r2ObjectUrl(accountId: string, bucket: string, key = ""): string
   return `https://${accountId.toLowerCase()}.r2.cloudflarestorage.com/${bucket}${key ? "/" + key : ""}`;
 }
 
+export function validAwsBucket(bucket: unknown): bucket is string {
+  return typeof bucket === "string" &&
+    /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket) &&
+    !/(?:\.\.|\.-|-\.)/.test(bucket) &&
+    !/^\d+\.\d+\.\d+\.\d+$/.test(bucket);
+}
+
+export function awsS3ObjectUrl(region: string, bucket: string, key = ""): string {
+  if (typeof region !== "string" || !region) throw new Error("AWS region is required");
+  if (!validAwsBucket(bucket)) throw new Error("Invalid AWS S3 bucket");
+  if (key && !validObjectKey(key)) throw new Error("Invalid storage object key");
+  // Do not restrict AWS regions. Resolve only under the fixed AWS commercial
+  // domain, and prevent a region string from injecting URL authority or path.
+  const hostname = `s3.${region}.amazonaws.com`;
+  let url: URL;
+  try {
+    url = new URL(`https://${hostname}/${bucket}${key ? "/" + key : ""}`);
+  } catch {
+    throw new Error("Invalid AWS S3 endpoint");
+  }
+  if (url.hostname !== hostname || url.username || url.password || url.port ||
+      url.pathname !== `/${bucket}${key ? "/" + key : ""}` || url.search || url.hash) {
+    throw new Error("Invalid AWS S3 endpoint");
+  }
+  return url.toString();
+}
+
 /**
- * Both B2 and R2 use a private S3-compatible API, with authenticated Worker-side
+ * B2, R2, and AWS S3 use a private S3-compatible API, with authenticated Worker-side
  * requests. Credentials and URLs are never exposed to browsers.
  */
 function s3Store(options: {
@@ -190,6 +217,14 @@ function configuredStore(storage: StorageConfig): ObjectStore {
       urlFor: key => b2ObjectUrl(storage.region, storage.bucket, key),
       region: storage.region, keyId: storage.keyId, secret: storage.applicationKey,
       label: "Backblaze B2",
+    });
+  }
+  if (storage.backend === "s3") {
+    return s3Store({
+      root: awsS3ObjectUrl(storage.region, storage.bucket),
+      urlFor: key => awsS3ObjectUrl(storage.region, storage.bucket, key),
+      region: storage.region, keyId: storage.accessKeyId, secret: storage.secretAccessKey,
+      label: "AWS S3",
     });
   }
   return s3Store({

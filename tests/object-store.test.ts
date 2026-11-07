@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { b2ObjectUrl, r2ObjectUrl, parseListObjectsV2, xmlText } from "../worker/object-store";
+import { awsS3ObjectUrl, b2ObjectUrl, r2ObjectUrl, parseListObjectsV2, xmlText } from "../worker/object-store";
 import { dataKey } from "../worker/model";
 
 describe("Backblaze B2 S3 compatibility", () => {
@@ -43,6 +43,24 @@ describe("Backblaze B2 S3 compatibility", () => {
     expect(r2ObjectUrl("a".repeat(32), "private-backups", key))
       .toBe("https://" + "a".repeat(32) + ".r2.cloudflarestorage.com/private-backups/" + key);
   });
+  test("constructs only AWS commercial S3 endpoints without a region allowlist", () => {
+    const key = dataKey("a8c37123-1468-412a-8dca-b6724d9d3f21");
+    expect(awsS3ObjectUrl("us-east-1", "private-aws-bucket", key))
+      .toBe("https://s3.us-east-1.amazonaws.com/private-aws-bucket/" + key);
+    expect(awsS3ObjectUrl("ap-southeast-2", "private-aws-bucket"))
+      .toBe("https://s3.ap-southeast-2.amazonaws.com/private-aws-bucket");
+    expect(awsS3ObjectUrl("future-east-8", "private-aws-bucket", key))
+      .toBe("https://s3.future-east-8.amazonaws.com/private-aws-bucket/" + key);
+    expect(awsS3ObjectUrl("cn-north-1", "private-aws-bucket", key))
+      .not.toContain(".amazonaws.com.cn");
+    for (const region of ["", "us-east-1@evil.example.com", "us-east-1/abc",
+      "us-east-1?x=1", "https://evil.example.com"]) {
+      expect(() => awsS3ObjectUrl(region, "private-aws-bucket", key)).toThrow();
+    }
+    expect(() => awsS3ObjectUrl("us-east-1", "bad/bucket", key)).toThrow();
+    expect(() => awsS3ObjectUrl("us-east-1", "private-aws-bucket", "../admin")).toThrow();
+  });
+
   test("rejects arbitrary origin and unexpected object keys", () => {
     expect(() => b2ObjectUrl("evil.example.com", "private-backups")).toThrow();
     expect(() => b2ObjectUrl("us-west-004", "private-backups", "../admin")).toThrow();

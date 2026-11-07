@@ -1,5 +1,5 @@
 export type Mode = "public" | "protected";
-export type StorageBackend = "b2" | "r2";
+export type StorageBackend = "b2" | "r2" | "s3";
 export interface FileChecksums {
   sha256: string;
 }

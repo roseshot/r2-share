@@ -1,11 +1,11 @@
 # TuckBox
 
-Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Backblaze B2**, and **Cloudflare R2**. Store each file once, then issue multiple independent sharing links.
+Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Backblaze B2**, **Cloudflare R2**, and **AWS S3**. Store each file once, then issue multiple independent sharing links.
 
 ## Features
 
 - Upload multiple files, drag in folders as ZIP archives, or paste images, files, and plain text (**90 MiB per upload**).
-- Choose a named storage ID at upload time; configure up to **32** B2 or R2 storage instances.
+- Choose a named storage ID at upload time; configure up to **32** B2, R2, or AWS S3 storage instances.
 - Create multiple links for one file, each with its own admin-only name, public/protected access, optional access code, and expiration.
 - Create public upload pages with time expiry and/or a maximum number of successful uploads; contributors need no admin login.
 - Revoke or update one link without affecting other links or duplicating the stored object.
@@ -23,7 +23,8 @@ Browser ── HTTPS ──► Cloudflare Worker
                       ├── D1: files, shares, upload sessions, encrypted settings
                       └── Private object storage
                           ├── Backblaze B2 (one or more storage IDs)
-                          └── Cloudflare R2 (one or more storage IDs)
+                          ├── Cloudflare R2 (one or more storage IDs)
+                          └── AWS S3 (one or more storage IDs)
 ```
 
 A **file** owns its metadata, storage ID, object, and retention deadline. A **share link** points to a file and has its own ID, access policy, access code, and expiration. Share permissions are checked for every public metadata, preview, and download request.
@@ -31,7 +32,7 @@ A **file** owns its metadata, storage ID, object, and retention deadline. A **sh
 ## Requirements
 
 - A Cloudflare account with **Workers** and **D1** enabled.
-- A private Backblaze B2 or Cloudflare R2 bucket and its S3 API credentials.
+- A private Backblaze B2, Cloudflare R2, or AWS S3 bucket and its S3 API credentials.
 - [Bun](https://bun.sh/) for development, tests, and builds.
 - Wrangler access to the Cloudflare account for local/CLI deployment.
 - A custom domain or route for the Worker: `workers_dev` and preview URLs are disabled by default.
@@ -88,8 +89,8 @@ Because `workers_dev` is disabled, configure a **custom domain or Worker route**
 
 1. Visit `https://your-domain/<ADMIN_PATH>` and sign in.
 2. Open **Object storage settings → Add storage**.
-3. Give the storage an immutable ID, for example `b2-primary`, `b2-backup`, or `r2-media`.
-4. Choose **B2** or **R2**, provide the private bucket name and provider-specific credentials, and save.
+3. Give the storage an immutable ID, for example `b2-primary`, `r2-media`, or `aws-backup`.
+4. Choose **B2**, **R2**, or **AWS S3**, provide the private bucket name and provider-specific credentials, and save.
 5. Select the **storage ID**, not merely the provider, when uploading a file.
 
 Each storage ID has separate credentials and a bucket. IDs must start with a lowercase letter and be 2–32 characters long, using lowercase letters, digits, `_`, or `-`. The app checks bucket listing access before saving a configuration.
@@ -98,8 +99,9 @@ Each storage ID has separate credentials and a bucket. IDs must start with a low
 | --- | --- |
 | Backblaze B2 | Bucket, region (for example `us-west-004`), application key ID, application key |
 | Cloudflare R2 | Bucket, 32-character account ID, R2 S3 access key ID, secret access key |
+| AWS S3 | Private bucket, region (for example `us-east-1`), AWS access key ID, AWS secret access key |
 
-R2 uses `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` and the signing region `auto`. Storage settings are encrypted in D1 with a key derived from `APP_MASTER_KEY`.
+R2 uses `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` and the signing region `auto`. AWS S3 uses the path-style endpoint `https://s3.<region>.amazonaws.com/<bucket>` with SigV4; AWS China (`.amazonaws.com.cn`) endpoints are not supported. Region names are not allowlisted; AWS determines whether a region is valid. The AWS key needs `s3:ListBucket` on the bucket and `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` on `tuckbox/*` (plus `files/*` if using legacy objects). Credentials stay on the Worker and storage settings are encrypted in D1 with a key derived from `APP_MASTER_KEY`.
 
 Storage IDs and provider types cannot be renamed. Deleting a storage configuration or changing its bucket/account/region is blocked while files or upload sessions reference it; credential rotation is supported. **Removing a storage configuration never deletes an entire bucket.**
 
@@ -145,7 +147,7 @@ Share the generated `https://your-domain/u/<page-id>` URL. Visitors do **not**
 need administrator credentials. They can choose files, select folders (compressed
 locally into ZIP), drag files/folders, or paste files, screenshots, and text.
 Files must be nonempty and at most **90 MiB each**. Uploaded files are stored in
-the selected private B2/R2 storage and appear in the normal administrator file
+the selected private B2/R2/AWS S3 storage and appear in the normal administrator file
 list. The public uploader does **not** receive file download links or access codes.
 Each uploaded file gets a **protected** initial share with a random access code
 that only an administrator can reveal, so uploading does not make it public.
@@ -185,7 +187,7 @@ on decoy details return an error. The actual administrator path is identified
 using the authenticated session probe.
 
 New file IDs are UUID v4 (36 characters; 122 random bits). New objects are stored
-under the bucket-root prefix `tuckbox/<file-uuid>` in both B2 and R2.
+under the bucket-root prefix `tuckbox/<file-uuid>` in B2, R2, and AWS S3.
 Existing 16-character file IDs and their `files/<legacy-id>` bucket objects
 remain readable and deletable without migration. Public upload page IDs still
 use 16-character Base64URL values (96 random bits). Real share-link IDs are
@@ -336,7 +338,7 @@ This is a post-CI merge action, not GitHub's per-PR `auto_merge` toggle. Protect
 ## Download and preview experience
 
 Downloads and media previews support single HTTP byte ranges, forwarded through the
-authorized Worker to the configured B2/R2 bucket. The Worker rejects invalid
+authorized Worker to the configured B2/R2/AWS S3 bucket. The Worker rejects invalid
 ranges with HTTP 416 and does not provide multipart byte-range responses.
 
 The share page checks download availability with an authorized HEAD request
@@ -347,7 +349,7 @@ apply to HEAD and partial requests.
 
 ## Operations and security
 
-- **Private buckets and least-privilege credentials:** grant only required bucket/object operations; do not expose B2/R2 credentials to the browser.
+- **Private buckets and least-privilege credentials:** grant only required bucket/object operations; do not expose B2/R2/AWS S3 credentials to the browser.
 - **Access scope:** public links are bearer URLs; anyone with a valid public URL can access its file. Share links are not user accounts, and an access code is not end-to-end encryption.
 - **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**, then refreshes the D1 `storage_usage` snapshot; large deletion backlogs require subsequent runs.
 - **Data deletion:** file deletion targets the recorded storage ID and its

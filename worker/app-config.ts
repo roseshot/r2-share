@@ -1,5 +1,6 @@
 import { b64, unb64 } from "./crypto";
 import { validStorageId, type Bindings, type StorageConfig } from "./model";
+import { validAwsBucket, awsS3ObjectUrl } from "./object-store";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -15,7 +16,8 @@ export function validateStorage(storage: StorageConfig): void {
   if (!storage || typeof storage !== "object" || !validStorageId(storage.id)) {
     throw new Error("Invalid storage ID");
   }
-  if (storage.backend !== "b2" && storage.backend !== "r2") throw new Error("Invalid storage provider");
+  if (storage.backend !== "b2" && storage.backend !== "r2" && storage.backend !== "s3")
+    throw new Error("Invalid storage provider");
   if (typeof storage.bucket !== "string") throw new Error("Invalid bucket");
   if (storage.backend === "b2") {
     if (!/^[a-z]{2}-[a-z0-9-]+-[0-9]{3}$/.test(storage.region)) throw new Error("Invalid B2 region");
@@ -23,7 +25,7 @@ export function validateStorage(storage: StorageConfig): void {
     if (typeof storage.keyId !== "string" || storage.keyId.length < 4 || storage.keyId.length > 256 ||
         typeof storage.applicationKey !== "string" || storage.applicationKey.length < 4 ||
         storage.applicationKey.length > 256) throw new Error("Invalid B2 credentials");
-  } else {
+  } else if (storage.backend === "r2") {
     if (typeof storage.accountId !== "string" ||
         !/^[a-f0-9]{32}$/i.test(storage.accountId)) throw new Error("Invalid R2 account ID");
     if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(storage.bucket)) throw new Error("Invalid R2 bucket");
@@ -31,6 +33,16 @@ export function validateStorage(storage: StorageConfig): void {
         storage.accessKeyId.length > 256 || typeof storage.secretAccessKey !== "string" ||
         storage.secretAccessKey.length < 4 || storage.secretAccessKey.length > 256) {
       throw new Error("Invalid R2 credentials");
+    }
+  } else {
+    if (!validAwsBucket(storage.bucket)) throw new Error("Invalid AWS S3 bucket");
+    // No AWS region allowlist. Validate endpoint construction without making
+    // requests to any user-supplied hostname.
+    awsS3ObjectUrl(storage.region, storage.bucket);
+    if (typeof storage.accessKeyId !== "string" || storage.accessKeyId.length < 4 ||
+        storage.accessKeyId.length > 256 || typeof storage.secretAccessKey !== "string" ||
+        storage.secretAccessKey.length < 4 || storage.secretAccessKey.length > 256) {
+      throw new Error("Invalid AWS S3 credentials");
     }
   }
 }
@@ -40,8 +52,12 @@ export function publicStorage(storage: StorageConfig) {
     return { id: storage.id, backend: storage.backend, bucket: storage.bucket,
       region: storage.region, keyId: storage.keyId };
   }
+  if (storage.backend === "r2") {
+    return { id: storage.id, backend: storage.backend, bucket: storage.bucket,
+      accountId: storage.accountId, accessKeyId: storage.accessKeyId };
+  }
   return { id: storage.id, backend: storage.backend, bucket: storage.bucket,
-    accountId: storage.accountId, accessKeyId: storage.accessKeyId };
+    region: storage.region, accessKeyId: storage.accessKeyId };
 }
 
 function masterBytes(master: string): Uint8Array<ArrayBuffer> {
