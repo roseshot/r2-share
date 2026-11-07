@@ -69,6 +69,42 @@ function fixture() {
 }
 
 describe("independent multiple share links", () => {
+  test("returns stable, normal-looking metadata for missing IDs without granting file access", async () => {
+    const app = fixture();
+    const realRecord = await app.createFile();
+    await saveRecord(app.env, {
+      ...realRecord,
+      checksums: { sha256: "a".repeat(64) },
+      originalModifiedAt: "2026-06-03T12:00:00.000Z",
+    });
+    const real = await (await app.request("/api/files/" + fileId)).json() as Record<string, unknown>;
+    const unknown = "Fq8mH2_nP4xY7zQc";
+    const first = await app.request("/api/files/" + unknown);
+    expect(first.status).toBe(200);
+    expect(first.headers.get("Cache-Control")).toBe("no-store");
+    const decoy = await first.json() as Record<string, unknown>;
+    expect(Object.keys(decoy).sort()).toEqual(Object.keys(real).sort());
+    expect(decoy).toMatchObject({ id: unknown, mode: "public" });
+    expect(decoy.filename).toMatch(/\.(pdf|jpg|zip|txt|mp4|xlsx)$/);
+    expect(decoy.size).toBeGreaterThan(0);
+    expect(decoy.size).toBeLessThan(1024 ** 4);
+    expect(decoy.checksums).toMatchObject({ sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    expect(await (await app.request("/api/files/" + unknown)).json()).toEqual(decoy);
+    expect((await app.request("/api/files/" + unknown + "/download")).status).toBe(404);
+    expect((await app.request("/api/files/" + unknown + "/preview")).status).toBe(404);
+    expect((await app.request("/api/files/" + unknown + "/unlock", {
+      method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "wrong" }),
+    })).status).toBe(404);
+    expect(await (await app.request("/api/files/shortname")).json()).toMatchObject({
+      id: "shortname", mode: "public",
+    });
+    expect((await app.request("/api/files/bad!")).status).toBe(404);
+    expect((await app.request("/api/files/" + "A".repeat(513))).status).toBe(404);
+    expect(await (await app.request("/api/files/" + fileId)).json()).toEqual(real);
+  });
+
+
   test("keeps existing file-ID links and adds independent protected links", async () => {
     const app = fixture();
     await app.createFile();
@@ -249,7 +285,10 @@ describe("independent multiple share links", () => {
     });
     const { share: { id: secondId } } = await created.json() as { share: { id: string } };
     expect((await app.admin("/files/" + fileId + "/shares/" + secondId, "DELETE")).status).toBe(200);
-    expect((await app.request("/api/files/" + secondId)).status).toBe(404);
+    const revoked = await app.request("/api/files/" + secondId);
+    expect(revoked.status).toBe(200);
+    expect(await revoked.json()).toMatchObject({ id: secondId, mode: "public" });
+    expect((await app.request("/api/files/" + secondId + "/download")).status).toBe(404);
     expect((await app.request("/api/files/" + fileId)).status).toBe(200);
     expect(await getRecord(app.env, fileId)).not.toBeNull();
     expect(app.objects.get(dataKey(fileId))).toBe("sample");
@@ -271,7 +310,10 @@ describe("independent multiple share links", () => {
     });
     await app.env.DB.prepare("UPDATE shares SET expires_at = ? WHERE id = ?")
       .bind(new Date(Date.now() - 1000).toISOString(), share.id).run();
-    expect((await app.request("/api/files/" + secondId)).status).toBe(404);
+    const expired = await app.request("/api/files/" + secondId);
+    expect(expired.status).toBe(200);
+    expect(await expired.json()).toMatchObject({ id: secondId, mode: "public" });
+    expect((await app.request("/api/files/" + secondId + "/download")).status).toBe(404);
     expect((await app.request("/api/files/" + fileId)).status).toBe(200);
     expect(app.objects.get(dataKey(fileId))).toBe("sample");
   });

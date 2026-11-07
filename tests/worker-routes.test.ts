@@ -85,7 +85,7 @@ describe("Worker page routes", () => {
       expect(await response.text()).toContain("<!doctype html>");
     }
     const invalidApi = await handler.fetch(
-      new Request("https://site.example/api/files/another"),
+      new Request("https://site.example/api/files/bad!"),
       makeEnv("secret"),
       {} as ExecutionContext,
     );

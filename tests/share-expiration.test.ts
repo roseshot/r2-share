@@ -207,17 +207,22 @@ describe("independent file and share expiration", () => {
 
     const expiredPage = await app.request("/" + id, { headers: { Cookie: cookie } });
     expect(expiredPage.status).toBe(200); // Branded unavailable page renders first.
-    for (const path of ["/api/files/" + id, "/api/files/" + id + "/download"]) {
-      const response = await app.request(path, { headers: { Cookie: cookie } });
-      expect(response.status).toBe(404);
-      expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
-      expect(response.headers.get("Set-Cookie")).toContain("Path=/");
-    }
+    const expiredMetadata = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
+    expect(expiredMetadata.status).toBe(200);
+    expect(await expiredMetadata.json()).toMatchObject({ id, mode: "public" });
+    expect(expiredMetadata.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    const expiredDownload = await app.request("/api/files/" + id + "/download", {
+      headers: { Cookie: cookie },
+    });
+    expect(expiredDownload.status).toBe(404);
+    expect(expiredDownload.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    expect(expiredDownload.headers.get("Set-Cookie")).toContain("Path=/");
     await deleteRecord(app.env, id);
     const deleted = await app.request("/" + id, { headers: { Cookie: cookie } });
     expect(deleted.status).toBe(200);
     const deletedMetadata = await app.request("/api/files/" + id, { headers: { Cookie: cookie } });
-    expect(deletedMetadata.status).toBe(404);
+    expect(deletedMetadata.status).toBe(200);
+    expect(await deletedMetadata.json()).toMatchObject({ id, mode: "public" });
     expect(deletedMetadata.headers.get("Set-Cookie")).toContain("Max-Age=0");
   });
 
@@ -392,9 +397,10 @@ describe("independent file and share expiration", () => {
     }));
     app.objects.set(dataKey(id), "secret");
     expect((await app.request("/" + id)).status).toBe(200);
-    for (const path of ["/api/files/" + id, "/api/files/" + id + "/download"]) {
-      expect((await app.request(path)).status).toBe(404);
-    }
+    const expiredMetadata = await app.request("/api/files/" + id);
+    expect(expiredMetadata.status).toBe(200);
+    expect(await expiredMetadata.json()).toMatchObject({ id, mode: "public" });
+    expect((await app.request("/api/files/" + id + "/download")).status).toBe(404);
     expect(await cleanupExpired(app.env)).toBe(0);
     expect(await getRecord(app.env, id)).not.toBeNull();
     expect(app.objects.has(dataKey(id))).toBe(true);
@@ -451,7 +457,9 @@ describe("independent file and share expiration", () => {
       expiresAt: null,
       shareExpiresAt: new Date(Date.now() - 3600000).toISOString(),
     }));
-    expect((await app.request("/api/files/" + id)).status).toBe(404);
+    const previouslyExpired = await app.request("/api/files/" + id);
+    expect(previouslyExpired.status).toBe(200);
+    expect(await previouslyExpired.json()).toMatchObject({ id, mode: "public" });
     const patch = await app.request("/secret/api/files/" + id, {
       method: "PATCH",
       headers: { Origin: origin, "Content-Type": "application/json", Cookie: await app.adminCookie() },

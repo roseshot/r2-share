@@ -3,6 +3,7 @@ import { monitorUpload } from "./integrity";
 import { previewFormat } from "../src/preview-types";
 import { parseByteRange } from "./ranges";
 import { getVirusTotalReport } from "./virustotal";
+import { generatePlaceholderShare } from "./placeholder-share";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Bindings, FileRecord, ShareRecord, Mode, StorageConfig } from "./model";
 import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareLinkExpired, expirationDate, validChecksums, validStoredId } from "./model";
@@ -83,11 +84,11 @@ async function verifySharedAccess(c: import("hono").Context<Environment>, share:
 
 app.get("/api/files/:id", async c => {
   const id = c.req.param("id");
-  if (!validId(id)) return jsonError("File not found", 404);
-  const result = await resolveSharedFile(c.env, id);
+  if (!/^[A-Za-z0-9_-]{1,512}$/.test(id)) return jsonError("File not found", 404);
+  const result = validId(id) ? await resolveSharedFile(c.env, id) : null;
   if (!result) {
-    clearShareAuthorization(c, id);
-    return c.json({ error: "File not found or expired" }, 404);
+    if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
+    return c.json(await generatePlaceholderShare(id, c.env.SESSION_SECRET));
   }
   const { record, share } = result;
   if (share.mode === "protected" && !await verifySharedAccess(c, share)) {
@@ -742,7 +743,7 @@ app.get("/tuckbox-mark.svg", c => c.env.ASSETS.fetch(c.req.raw));
 app.get("/:entry", async c => {
   const entry = c.req.param("entry");
   // Render the branded page even for an unknown or malformed share ID.
-  // The client fetches metadata and shows a non-downloadable placeholder for missing shares.
+  // The metadata API renders a stable server-generated decoy for missing shares.
   // This HTML response grants no file access; download routes still enforce authorization.
   if (!/^[a-zA-Z0-9_-]+$/.test(entry)) return c.notFound();
   return serveHtml(c.req.raw, c.env);

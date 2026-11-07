@@ -8,28 +8,24 @@ import { FileChecksums } from "./file-checksums";
 import { ThemeSwitcher } from "./theme";
 import { FilePreview } from "./file-preview";
 import { isArchiveFile, previewFormat } from "./preview-types";
-import { loadShareDetails } from "./share-details";
 
 export default function SharePage() {
   const id = location.pathname.slice(1);
   const [file, setFile] = useState<Share | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [isPlaceholder, setIsPlaceholder] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
 
   useEffect(() => {
-    loadShareDetails(id).then(({ file: details, isPlaceholder: placeholder }) => {
-      setFile(details);
-      setIsPlaceholder(placeholder);
-    }).catch((e: Error) => setError(e.message))
+    requestJson<Share>("/api/files/" + id).then(setFile)
+      .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
 
   async function download() {
-    if (isPlaceholder || downloadBusy) return;
+    if (downloadBusy) return;
     setDownloadBusy(true);
     setError("");
     try {
@@ -136,14 +132,14 @@ export default function SharePage() {
                     </Popover.Root>
                   </span>
                 </div>
-                <FilePreview key={[id, file.filename, file.size, file.checksums?.sha256].join(":")} id={id} file={file} disabled={isPlaceholder} />
+                <FilePreview key={[id, file.filename, file.size, file.checksums?.sha256].join(":")} id={id} file={file} />
                 {file.checksums ? <FileChecksums checksums={file.checksums} filename={file.filename!} /> :
                   <section className="mt-6" aria-label="SHA-256">
                     <h2 className="mb-2 text-sm font-medium">SHA-256</h2>
                     <p className="text-sm text-zinc-500">SHA-256 is unavailable for this file.</p>
                   </section>}
                 <div className="mt-8 border-t border-zinc-200 dark:border-white/10 pt-7">
-                  <Button className="w-full" disabled={isPlaceholder || downloadBusy} onClick={() => void download()}>
+                  <Button className="w-full" disabled={downloadBusy} onClick={() => void download()}>
                     <ArrowDownToLine size={17}/>{downloadBusy ? "Preparing download…" : "Download file"}
                   </Button>
                 </div>

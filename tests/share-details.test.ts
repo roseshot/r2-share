@@ -1,71 +1,57 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { RequestError, sizeText, type Share } from "../src/lib";
-import { createPlaceholderShare, loadShareDetails } from "../src/share-details";
+import { sizeText } from "../src/lib";
+import { createPlaceholderShare, generatePlaceholderShare } from "../worker/placeholder-share";
 
 const id = "Kq8mH2_nP4xY7zQb";
+const secret = "test-session-secret-for-placeholder-metadata";
 
-describe("unavailable share presentation", () => {
-  test("preserves real share metadata", async () => {
-    const share: Share = { id, mode: "protected" };
-    const result = await loadShareDetails(id, async url => {
-      expect(url).toBe("/api/files/" + id);
-      return share;
-    });
-    expect(result).toEqual({ file: share, isPlaceholder: false });
+describe("server-generated missing share metadata", () => {
+  test("is stable across repeated requests and independent Worker instances", async () => {
+    const first = await generatePlaceholderShare(id, secret);
+    const second = await generatePlaceholderShare(id, secret);
+    expect(second).toEqual(first);
+    expect(await generatePlaceholderShare("OtherMissingID99", secret)).not.toEqual(first);
+    expect(await generatePlaceholderShare(id, secret + "rotated")).not.toEqual(first);
+    expect(first).toMatchObject({ id, mode: "public" });
+    expect(first.filename).toMatch(/\.(pdf|jpg|zip|txt|mp4|xlsx)$/);
+    expect(first.checksums?.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(Date.parse(first.originalModifiedAt!)).toBeLessThan(Date.now());
+    expect(first.size).toBeGreaterThan(0);
+    expect(first.size).toBeLessThan(1024 ** 4);
   });
 
-  test("substitutes randomized file details only for missing shares", async () => {
-    const result = await loadShareDetails(id, async () => {
-      throw new RequestError("File not found", 404);
-    });
-    expect(result.isPlaceholder).toBe(true);
-    expect(result.file.id).toBe(id);
-    expect(result.file.mode).toBe("public");
-    expect(result.file.filename).toMatch(/\.(pdf|jpg|zip|txt|mp4|xlsx)$/);
-    expect(result.file.size).toBeGreaterThan(0);
-    expect(Number.isSafeInteger(result.file.size)).toBe(true);
-    expect(result.file.mime).toBeTruthy();
-    expect(Date.parse(result.file.originalModifiedAt!)).toBeLessThan(Date.now());
-    expect(result.file.checksums?.sha256).toMatch(/^[a-f0-9]{64}$/);
-    const filenames = new Set(Array.from({ length: 8 }, () => createPlaceholderShare(id).filename));
-    expect(filenames.size).toBeGreaterThan(1);
-  });
-
-  test("generates everyday filenames with camera, date, version, and duplicate conventions", () => {
-    const samples = [
-      { extension: "pdf", mime: "application/pdf", typical: [60 * 1024, 256 * 1024] },
-      { extension: "jpg", mime: "image/jpeg", typical: [500 * 1024, 2 * 1024 * 1024] },
-      { extension: "zip", mime: "application/zip", typical: [1024 * 1024, 8 * 1024 * 1024] },
-      { extension: "txt", mime: "text/plain", typical: [400, 2 * 1024] },
-      { extension: "mp4", mime: "video/mp4", typical: [12 * 1024 * 1024, 64 * 1024 * 1024] },
-      { extension: "xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  test("uses familiar filenames, type-aware sizes and the existing size ceiling", () => {
+    const variants = [
+      { ext: "pdf", mime: "application/pdf", typical: [60 * 1024, 256 * 1024] },
+      { ext: "jpg", mime: "image/jpeg", typical: [500 * 1024, 2 * 1024 ** 2] },
+      { ext: "zip", mime: "application/zip", typical: [1024 ** 2, 8 * 1024 ** 2] },
+      { ext: "txt", mime: "text/plain", typical: [400, 2 * 1024] },
+      { ext: "mp4", mime: "video/mp4", typical: [12 * 1024 ** 2, 64 * 1024 ** 2] },
+      { ext: "xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         typical: [16 * 1024, 80 * 1024] },
     ];
     const values = new Uint32Array(12);
-    const variants = 10;
-    for (let category = 0; category < samples.length; category++) {
-      const format = samples[category];
-      values[0] = category;
-      for (let variant = 0; variant < variants; variant++) {
+    for (let type = 0; type < variants.length; type++) {
+      values[0] = type;
+      for (let variant = 0; variant < 10; variant++) {
         values[1] = variant;
         values[4] = variant * 31;
         values[5] = variant * 7;
-        const file = createPlaceholderShare(id, values);
-        expect(file.mime).toBe(format.mime);
-        expect(file.filename?.endsWith("." + format.extension)).toBe(true);
-        expect(file.filename).not.toContain("undefined");
-        expect(file.filename).not.toContain("/");
-        expect(file.filename).not.toContain("\\");
-        expect(file.filename).not.toMatch(/[<>:"|?*]/);
-        expect(Number.isSafeInteger(file.size)).toBe(true);
-        expect(file.size).toBeGreaterThan(0);
+        const share = createPlaceholderShare(id, values);
+        expect(share.filename).toMatch(new RegExp("\\." + variants[type].ext + "$"));
+        expect(share.mime).toBe(variants[type].mime);
+        expect(share.size).toBeGreaterThan(0);
+        expect(share.size).toBeLessThan(1024 ** 4);
+        expect(sizeText(share.size!)).not.toMatch(/TiB|PiB/);
       }
       values[2] = 0x80000000;
-      values[6] = 0;
-      const typicalSize = createPlaceholderShare(id, values).size!;
-      expect(typicalSize).toBeGreaterThanOrEqual(format.typical[0]);
-      expect(typicalSize).toBeLessThanOrEqual(format.typical[1]);
+      const typical = createPlaceholderShare(id, values).size!;
+      expect(typical).toBeGreaterThanOrEqual(variants[type].typical[0]);
+      expect(typical).toBeLessThanOrEqual(variants[type].typical[1]);
+      values[2] = 0xffffffff;
+      values[6] = 0xffffffff;
+      expect(createPlaceholderShare(id, values).size).toBeLessThanOrEqual(999 * 1024 ** 3);
       values[2] = 0;
       values[6] = 0;
     }
@@ -75,166 +61,19 @@ describe("unavailable share presentation", () => {
     expect(createPlaceholderShare(id, values).filename).toBe("IMG_1287.jpg");
     values[1] = 2;
     expect(createPlaceholderShare(id, values).filename).toMatch(/^PXL_\d{8}_\d{9}\.jpg$/);
-    values[0] = 0;
-    values[1] = 3;
-    expect(createPlaceholderShare(id, values).filename).toMatch(/proposal v[2-5]\.pdf$/);
     values[0] = 3;
     values[1] = 4;
     expect(createPlaceholderShare(id, values).filename).toMatch(/\(1\)\.txt$/);
   });
 
-  test("does not cap placeholder sizes at previous per-format limits", () => {
-    const oldCaps = [4 * 1024 ** 2, 5 * 1024 ** 2, 40 * 1024 ** 2,
-      12 * 1024, 88 * 1024 ** 2, 800 * 1024];
-    const values = new Uint32Array(12);
-    for (let index = 0; index < oldCaps.length; index++) {
-      values[0] = index;
-      values[2] = 0xffffffff;
-      values[6] = 0xffffffff;
-      const size = createPlaceholderShare(id, values).size!;
-      expect(size).toBeGreaterThan(oldCaps[index]);
-      expect(Number.isSafeInteger(size)).toBe(true);
-    }
-  });
-
-  test("never displays TiB or larger units for simulated files", () => {
-    const values = new Uint32Array(12);
-    values[2] = 0xffffffff;
-    values[6] = 0xffffffff;
-    for (let category = 0; category < 6; category++) {
-      values[0] = category;
-      const size = createPlaceholderShare(id, values).size!;
-      expect(size).toBeLessThan(1024 ** 4);
-      expect(size).toBeLessThanOrEqual(999 * 1024 ** 3);
-      expect(sizeText(size).endsWith("GiB")).toBe(true);
-    }
-    for (let category = 0; category < 6; category++) {
-      values[0] = category;
-      for (let index = 0; index < 100; index++) {
-        values[2] = Math.floor(index * (0xffffffff / 99));
-        values[6] = index * 42949673;
-        const size = createPlaceholderShare(id, values).size!;
-        expect(size).toBeLessThan(1024 ** 4);
-        expect(sizeText(size)).not.toMatch(/TiB|PiB/);
-      }
-    }
-  });
-
-  test("larger random quantiles produce larger files within each type", () => {
-    const values = new Uint32Array(12);
-    for (let category = 0; category < 6; category++) {
-      values[0] = category;
-      values[2] = 0x40000000;
-      const smaller = createPlaceholderShare(id, values).size!;
-      values[2] = 0xc0000000;
-      const larger = createPlaceholderShare(id, values).size!;
-      expect(larger).toBeGreaterThan(smaller);
-    }
-  });
-
-  test("formats large file sizes in natural binary units", () => {
-    expect(sizeText(512)).toBe("512 B");
-    expect(sizeText(2048)).toBe("2.0 KiB");
-    expect(sizeText(3 * 1024 ** 2)).toBe("3.0 MiB");
-    expect(sizeText(2 * 1024 ** 3)).toBe("2.0 GiB");
-    expect(sizeText(4 * 1024 ** 4)).toBe("4.0 TiB");
-  });
-
-  test("varies the subject inside the same filename pattern", () => {
-    const values = new Uint32Array(12);
-    values[0] = 4;
-    values[1] = 2;
-    const first = createPlaceholderShare(id, values).filename;
-    values[4] = 1;
-    const second = createPlaceholderShare(id, values).filename;
-    expect(first).not.toBe(second);
-  });
-
-  test("reuses the same cached placeholder after repeated 404 responses", async () => {
-    const entries = new Map<string, string>();
-    const storage = {
-      getItem: (key: string) => entries.get(key) ?? null,
-      setItem: (key: string, value: string) => { entries.set(key, value); },
-      removeItem: (key: string) => { entries.delete(key); },
-    };
-    let requests = 0;
-    async function missing(): Promise<Share> {
-      requests++;
-      throw new RequestError("File not found", 404);
-    }
-    const first = await loadShareDetails(id, missing, storage);
-    const second = await loadShareDetails(id, missing, storage);
-    expect(first.isPlaceholder).toBe(true);
-    expect(second).toEqual(first);
-    expect(requests).toBe(2);
-    expect(entries.size).toBe(1);
-    expect([...entries.keys()][0]).toContain(id);
-
-    const other = await loadShareDetails("AnotherMissingID", missing, storage);
-    expect(other.file.id).toBe("AnotherMissingID");
-    expect(entries.size).toBe(2);
-    expect((await loadShareDetails(id, missing, storage)).file).toEqual(first.file);
-  });
-
-  test("uses real metadata and clears a cached placeholder when a share becomes available", async () => {
-    const entries = new Map<string, string>();
-    const storage = {
-      getItem: (key: string) => entries.get(key) ?? null,
-      setItem: (key: string, value: string) => { entries.set(key, value); },
-      removeItem: (key: string) => { entries.delete(key); },
-    };
-    await loadShareDetails(id, async () => { throw new RequestError("Missing", 404); }, storage);
-    expect(entries.size).toBe(1);
-    const real: Share = { id, mode: "public", filename: "actual-file.pdf", size: 13579 };
-    expect(await loadShareDetails(id, async () => real, storage)).toEqual({
-      file: real, isPlaceholder: false,
-    });
-    expect(entries.size).toBe(0);
-  });
-
-  test("ignores invalid or inaccessible browser cache data", async () => {
-    const entries = new Map<string, string>();
-    const storage = {
-      getItem: (key: string) => entries.get(key) ?? null,
-      setItem: (key: string, value: string) => { entries.set(key, value); },
-      removeItem: (key: string) => { entries.delete(key); },
-    };
-    const load = async (): Promise<Share> => { throw new RequestError("Missing", 404); };
-    const original = await loadShareDetails(id, load, storage);
-    const key = [...entries.keys()][0];
-    entries.set(key, "{corrupt json");
-    const recovered = await loadShareDetails(id, load, storage);
-    expect(recovered.isPlaceholder).toBe(true);
-    expect(JSON.parse(entries.get(key)!)?.id).toBe(id);
-    entries.set(key, JSON.stringify({ ...original.file, id: "WrongId" }));
-    const validated = await loadShareDetails(id, load, storage);
-    expect(validated.file.id).toBe(id);
-    entries.set(key, JSON.stringify({ ...original.file, size: Number.MAX_SAFE_INTEGER }));
-    const limited = await loadShareDetails(id, load, storage);
-    expect(limited.file.size).toBeLessThan(1024 ** 4);
-
-    const blocked = {
-      getItem: (_key: string): string | null => { throw new Error("Storage blocked"); },
-      setItem: (_key: string, _value: string): void => { throw new Error("Storage blocked"); },
-      removeItem: (_key: string): void => { throw new Error("Storage blocked"); },
-    };
-    expect((await loadShareDetails(id, load, blocked)).isPlaceholder).toBe(true);
-    const real: Share = { id, mode: "public" };
-    expect((await loadShareDetails(id, async () => real, blocked)).file).toBe(real);
-  });
-
-  test("keeps other HTTP and network errors visible", async () => {
-    for (const error of [new RequestError("Unavailable", 503), new Error("Network error")]) {
-      await expect(loadShareDetails(id, async () => { throw error; })).rejects.toBe(error);
-    }
-  });
-
-  test("disables downloads and previews for placeholder details", () => {
-    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
-    const preview = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
-    expect(share).toContain("if (isPlaceholder || downloadBusy) return;");
-    expect(share).toContain("disabled={isPlaceholder || downloadBusy}");
-    expect(share).toContain("disabled={isPlaceholder} />");
-    expect(preview).toContain("disabled={disabled}");
+  test("does not perform browser-side decoy generation or persist fake data", () => {
+    const frontend = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const worker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
+    expect(frontend).toContain('requestJson<Share>("/api/files/" + id)');
+    expect(frontend).not.toContain("isPlaceholder");
+    expect(frontend).not.toContain("localStorage");
+    expect(worker).toContain("generatePlaceholderShare(id, c.env.SESSION_SECRET)");
+    expect(worker).toContain('return c.json(await generatePlaceholderShare(id, c.env.SESSION_SECRET))');
+    expect(worker).toContain("if (!result) {");
   });
 });

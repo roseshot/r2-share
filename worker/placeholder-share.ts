@@ -1,4 +1,4 @@
-import { RequestError, requestJson, type Share } from "./lib";
+import type { Share } from "../src/lib";
 
 const pick = (items: readonly string[], value: number): string => items[value % items.length];
 
@@ -12,9 +12,9 @@ function placeholderSize(baseSize: number, tailExponent: number, high: number, l
 
 export function createPlaceholderShare(
   id: string,
-  values: Uint32Array = crypto.getRandomValues(new Uint32Array(12)),
+  values: Uint32Array,
 ): Share {
-  const modifiedAt = new Date(Date.now() - (1 + values[3] % 365) * 86400000).toISOString();
+  const modifiedAt = new Date(Date.UTC(2026, 10, 1) - (1 + values[3] % 365) * 86400000).toISOString();
   const day = modifiedAt.slice(0, 10);
   const month = day.slice(0, 7);
   const year = day.slice(0, 4);
@@ -143,58 +143,20 @@ export function createPlaceholderShare(
   };
 }
 
-type PlaceholderStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-const placeholderCachePrefix = "tuckbox:missing-share:v1:";
 
-function browserStorage(): PlaceholderStorage | null {
-  try { return globalThis.localStorage ?? null; }
-  catch { return null; }
-}
-
-function isCachedPlaceholder(value: unknown, id: string): value is Share {
-  if (!value || typeof value !== "object") return false;
-  const entry = value as Record<string, unknown>;
-  const checksums = entry.checksums as Record<string, unknown> | null | undefined;
-  return entry.id === id &&
-    entry.mode === "public" &&
-    typeof entry.filename === "string" && entry.filename.length > 0 && entry.filename.length <= 255 &&
-    typeof entry.mime === "string" && entry.mime.length > 0 &&
-    typeof entry.size === "number" && Number.isSafeInteger(entry.size) &&
-    entry.size > 0 && entry.size <= maxPlaceholderSize &&
-    typeof entry.originalModifiedAt === "string" &&
-    Number.isFinite(Date.parse(entry.originalModifiedAt)) &&
-    !!checksums && typeof checksums === "object" &&
-    typeof checksums.sha256 === "string" && /^[a-f0-9]{64}$/.test(checksums.sha256);
-}
-
-function missingShareDetails(id: string, storage: PlaceholderStorage | null): Share {
-  const key = placeholderCachePrefix + id;
-  try {
-    const cached = storage?.getItem(key);
-    if (cached) {
-      const parsed: unknown = JSON.parse(cached);
-      if (isCachedPlaceholder(parsed, id)) return parsed;
-    }
-  } catch { /* Corrupt or unavailable browser storage should not block the page. */ }
-
-  const details = createPlaceholderShare(id);
-  try { storage?.setItem(key, JSON.stringify(details)); }
-  catch { /* The placeholder still works when persistence is unavailable. */ }
-  return details;
-}
-
-export async function loadShareDetails(
-  id: string,
-  load: (url: string) => Promise<Share> = requestJson,
-  storage: PlaceholderStorage | null = browserStorage(),
-): Promise<{ file: Share; isPlaceholder: boolean }> {
-  try {
-    const file = await load("/api/files/" + id);
-    try { storage?.removeItem(placeholderCachePrefix + id); }
-    catch { /* A valid share must not depend on browser storage. */ }
-    return { file, isPlaceholder: false };
-  } catch (error) {
-    if (!(error instanceof RequestError) || error.status !== 404) throw error;
-    return { file: missingShareDetails(id, storage), isPlaceholder: true };
-  }
+// Dedicated HMAC domain prevents share IDs from revealing or influencing the server secret.
+export async function generatePlaceholderShare(id: string, secret: string): Promise<Share> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const [first, second] = await Promise.all([0, 1].map(index =>
+    crypto.subtle.sign("HMAC", key, encoder.encode("tuckbox/placeholder/v1:" + id + ":" + index)),
+  ));
+  const bytes = new Uint8Array(48);
+  bytes.set(new Uint8Array(first), 0);
+  bytes.set(new Uint8Array(second).subarray(0, 16), 32);
+  const view = new DataView(bytes.buffer);
+  const values = Uint32Array.from({ length: 12 }, (_, index) => view.getUint32(index * 4, false));
+  return createPlaceholderShare(id, values);
 }
