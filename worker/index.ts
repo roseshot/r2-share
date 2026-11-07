@@ -366,7 +366,7 @@ app.get("/api/public-uploads/:id", async c => {
   if (!page) return jsonError("Upload page not found", 404);
   const state = await publicPageAvailability(c.env, page);
   return c.json({ label: page.label, expiresAt: page.expiresAt,
-    maxUploads: page.maxUploads, completedUploads: page.completedUploads, ...state });
+    maxUploads: page.maxUploads, ...state });
 });
 
 app.post("/api/public-uploads/:id/files", async c => {
