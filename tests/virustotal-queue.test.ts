@@ -314,6 +314,11 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
       "UPDATE virustotal_queue SET upload_submitted_at = ? WHERE sha256 = ?"
     ).bind(Date.now(), second.sha256).run();
     expect((await list()).get(second.id)).toBe(false);
+    // Leave the unrelated digest queued for a later cron so this assertion
+    // specifically verifies the authorized file's transition to cached.
+    await app.env.DB.prepare(
+      "UPDATE virustotal_queue SET next_attempt_at = ? WHERE sha256 = ?"
+    ).bind(Date.now() + 12 * 3600000, unrelated.sha256).run();
     expect(await processVirusTotalQueue(app.env, undefined,
       async () => resultJson(), Date.now() + 6 * 3600000)).toBe(1);
     expect((await list()).get(second.id)).toBe(false);
