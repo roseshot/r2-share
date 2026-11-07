@@ -85,6 +85,7 @@ export default function Admin() {
   const [editKind, setEditKind] = useState<"name" | "expiration">("name");
   const [editFilename, setEditFilename] = useState("");
   const [editFileDuration, setEditFileDuration] = useState(-1);
+  const [editError, setEditError] = useState("");
   const [saving, setSaving] = useState(false);
   const [vtLoading, setVtLoading] = useState<string | null>(null);
   const [vtResults, setVtResults] = useState<Record<string, VirusTotalReport>>({});
@@ -334,40 +335,48 @@ export default function Admin() {
   }
 
   function beginEdit(record: ManagedFile, kind: "name" | "expiration") {
+    if (saving) return;
     setEditId(record.id);
     setEditKind(kind);
     setEditFilename(record.filename);
     setEditFileDuration(-1); // The existing expiry is preserved until a new duration is saved.
-    setError("");
+    setEditError("");
+  }
+
+  function cancelEdit() {
+    if (saving) return;
+    setEditId(null);
+    setEditError("");
   }
 
   async function updateRecord(event: FormEvent) {
     event.preventDefault();
-    if (!editId) return;
+    if (!editId || saving) return;
     const updates: { filename?: string; fileExpiresIn?: number } = {};
     if (editKind === "name") {
       const name = editFilename.trim();
       if (!name || name.length > 240 || /[\x00-\x1f\x7f]/.test(name)) {
-        setError("File name must be 1–240 characters without control characters");
+        setEditError("File name must be 1–240 characters without control characters");
         return;
       }
       updates.filename = name;
     } else {
       if (!durations.some(duration => duration.seconds === editFileDuration)) {
-        setError("Choose a deletion period or Never");
+        setEditError("Choose a deletion period or Never");
         return;
       }
       updates.fileExpiresIn = editFileDuration;
     }
-    setSaving(true); setError("");
+    setSaving(true); setEditError("");
     try {
       await requestJson(api("/files/" + editId), {
         method: "PATCH", ...jsonBody(updates),
       });
       setVtResults(previous => { const next = { ...previous }; delete next[editId]; return next; });
-      setEditId(null); await refresh();
+      setEditId(null);
       successToast(editKind === "name" ? "File renamed" : "File deletion period updated");
-    } catch (e) { setError((e as Error).message); }
+      await refresh();
+    } catch (e) { setEditError((e as Error).message); }
     finally { setSaving(false); }
   }
 
@@ -642,23 +651,66 @@ export default function Admin() {
           {files.map(record => <Card key={record.id} className="p-5 sm:p-6">
             <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" className="break-all text-left text-base font-medium underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-2 focus-visible:outline-emerald-400"
-                    aria-label={"Rename " + record.filename} title="Click to rename"
-                    onClick={() => beginEdit(record, "name")}>{record.filename}</button>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  {editId === record.id && editKind === "name" ? (
+                    <form onSubmit={updateRecord} aria-label={"Rename " + record.filename}
+                      className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                      <label htmlFor="edit-filename" className="sr-only">File name</label>
+                      <Input id="edit-filename" autoFocus required maxLength={240}
+                        className="min-w-44 flex-1"
+                        value={editFilename} onChange={event => setEditFilename(event.target.value)} />
+                      <Button type="submit" size="sm" disabled={saving || !editFilename.trim()}>
+                        {saving ? "Saving…" : "Save"}
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" disabled={saving}
+                        onClick={cancelEdit}>Cancel</Button>
+                      {editError && <p role="alert" className="w-full break-words text-xs text-red-700 dark:text-red-300">
+                        {editError}
+                      </p>}
+                    </form>
+                  ) : (
+                    <button type="button" disabled={saving}
+                      className="break-all text-left text-base font-medium underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-2 focus-visible:outline-emerald-400"
+                      aria-label={"Rename " + record.filename} title="Click to rename"
+                      onClick={() => beginEdit(record, "name")}>{record.filename}</button>
+                  )}
                   <Badge variant="muted">{record.storageId}</Badge>
-
                 </div>
                 <p className="mt-2 text-xs text-zinc-500">{sizeText(record.size)} · {new Date(record.createdAt).toLocaleString("en-US")}</p>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-400">
-                  <button type="button" className="text-left underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-2 focus-visible:outline-emerald-400"
-                    aria-label={"Edit file deletion period for " + record.filename}
-                    title="Click to change deletion period"
-                    onClick={() => beginEdit(record, "expiration")}>
-                    File deletion: {timeText(record.fileExpiresAt)}
-                  </button>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  {editId === record.id && editKind === "expiration" ? (
+                    <form onSubmit={updateRecord} aria-label={"Edit file deletion period for " + record.filename}
+                      className="flex min-w-0 flex-wrap items-center gap-2">
+                      <label htmlFor="edit-file-expiration" className="shrink-0">File deletion:</label>
+                      <Select id="edit-file-expiration" className="w-44 max-w-full" disabled={saving}
+                        value={String(editFileDuration)}
+                        onValueChange={value => { setEditFileDuration(Number(value)); setEditError(""); }}
+                        options={[
+                          { value: "-1", label: "Keep unchanged" },
+                          ...durations.map(duration => ({
+                            value: String(duration.seconds),
+                            label: duration.seconds === 0 ? "Never" : duration.label,
+                          })),
+                        ]} />
+                      <Button type="submit" size="sm" disabled={saving || editFileDuration < 0}>
+                        {saving ? "Saving…" : "Save"}
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" disabled={saving}
+                        onClick={cancelEdit}>Cancel</Button>
+                      {editError && <p role="alert" className="w-full break-words text-red-700 dark:text-red-300">
+                        {editError}
+                      </p>}
+                    </form>
+                  ) : (
+                    <button type="button" disabled={saving}
+                      className="text-left underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-2 focus-visible:outline-emerald-400"
+                      aria-label={"Edit file deletion period for " + record.filename}
+                      title="Click to change deletion period"
+                      onClick={() => beginEdit(record, "expiration")}>
+                      File deletion: {timeText(record.fileExpiresAt)}
+                    </button>
+                  )}
                 </div>
-
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <a className={buttonStyles({ variant: "secondary", size: "sm" })} href={api("/files/" + record.id + "/download")}>
@@ -668,7 +720,6 @@ export default function Admin() {
                   {vtLoading === record.id ? <LoaderCircle size={15} className="animate-spin"/> : <ShieldAlert size={15}/>}
                   VirusTotal
                 </Button>}
-                <Button size="sm" variant="ghost" onClick={() => editId === record.id ? setEditId(null) : beginEdit(record, "expiration")}>Settings</Button>
                 <Button size="icon" variant="destructive" aria-label="Delete file" onClick={() => { setConfirmFile(record); setDeleteError(""); }}><Trash2 size={16}/></Button>
               </div>
             </div>
@@ -678,44 +729,6 @@ export default function Admin() {
               {vtResults[record.id].scanDate && <p className="mt-1 text-xs text-zinc-500">Last analysis: {new Date(vtResults[record.id].scanDate! * 1000).toLocaleString("en-US")}</p>}
             </div>}
             <AdminShares fileId={record.id} shares={record.shares} api={api} onSaved={refresh} />
-            {editId === record.id && <form
-              className="mt-5 space-y-4 rounded-xl border border-zinc-200 bg-zinc-100/80 p-4 dark:border-white/10 dark:bg-black/20"
-              onSubmit={updateRecord}>
-              <h3 className="text-sm font-semibold">
-                {editKind === "name" ? "Rename file" : "File deletion period"}
-              </h3>
-              {editKind === "name" ? <>
-                <label htmlFor="edit-filename" className="block text-xs text-zinc-600 dark:text-zinc-400">
-                  File name
-                </label>
-                <Input id="edit-filename" value={editFilename} maxLength={240} required
-                  onChange={event => setEditFilename(event.target.value)} />
-                <p className="text-xs text-zinc-500">Only the displayed file name changes; existing share URLs stay the same.</p>
-              </> : <>
-                <label htmlFor="edit-file-expiration" className="block text-xs text-zinc-600 dark:text-zinc-400">
-                  Delete file after
-                </label>
-                <Select id="edit-file-expiration" value={String(editFileDuration)}
-                  onValueChange={value => setEditFileDuration(Number(value))}
-                  options={[
-                    { value: "-1", label: "Keep unchanged" },
-                    ...durations.map(duration => ({
-                      value: String(duration.seconds),
-                      label: duration.seconds === 0 ? "Never" : duration.label + " (from save)",
-                    })),
-                  ]} />
-                <p className="text-xs text-zinc-500">
-                  The countdown starts when you save. Expired files are removed by scheduled cleanup.
-                  Share link expiration settings are unchanged.
-                </p>
-              </>}
-              <div className="flex flex-wrap gap-2">
-                <Button type="submit" size="sm" disabled={saving || (editKind === "expiration" && editFileDuration < 0)}>
-                  {saving ? "Saving…" : "Save"}
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setEditId(null)}>Cancel</Button>
-              </div>
-            </form>}
           </Card>)}
           <nav aria-label="File pages" className="flex items-center justify-between gap-3 pt-3">
             <Button size="sm" variant="secondary" disabled={page <= 1 || loadingFiles}

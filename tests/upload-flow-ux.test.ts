@@ -59,20 +59,32 @@ describe("upload completion experience", () => {
     expect(paste).toContain("Array.from(clipboard.files)");
   });
 
-  test("requires Save for renaming and relative file deletion periods", () => {
+  test("edits the filename and relative deletion period in place, with Save and Cancel", () => {
     const admin = source("src/admin.tsx");
     const worker = source("worker/index.ts");
-    expect(admin).toContain('beginEdit(record, "name")');
-    expect(admin).toContain('beginEdit(record, "expiration")');
+    const cards = admin.slice(admin.indexOf("{files.map(record =>"), admin.indexOf('<nav aria-label="File pages"'));
+    expect(cards).toContain('editId === record.id && editKind === "name"');
+    expect(cards).toContain('editId === record.id && editKind === "expiration"');
+    expect(cards).toContain('<form onSubmit={updateRecord} aria-label={"Rename " + record.filename}');
+    expect(cards).toContain('<Input id="edit-filename" autoFocus required');
+    expect(cards).toContain('<form onSubmit={updateRecord} aria-label={"Edit file deletion period for " + record.filename}');
+    expect(cards).toContain('<Select id="edit-file-expiration"');
+    expect(cards).toContain('label: "Keep unchanged"');
+    expect(cards).toContain('label: duration.seconds === 0 ? "Never" : duration.label');
+    expect(cards).toContain('File deletion: {timeText(record.fileExpiresAt)}');
+    expect(cards.match(/onSubmit={updateRecord}/g)).toHaveLength(2);
+    expect(cards.match(/onClick={cancelEdit}>Cancel/g)).toHaveLength(2);
+    expect(cards.match(/Saving…" : "Save"/g)).toHaveLength(2);
+    expect(cards).not.toContain(">Settings</Button>");
+    expect(cards).not.toContain("mt-5 space-y-4 rounded-xl");
+    expect(cards.indexOf('<Input id="edit-filename"')).toBeLessThan(cards.indexOf('<Badge variant="muted">'));
+    expect(cards.indexOf('<Select id="edit-file-expiration"')).toBeLessThan(cards.indexOf('<AdminShares'));
     expect(admin).toContain('updates.filename = name');
     expect(admin).toContain('updates.fileExpiresIn = editFileDuration');
     expect(admin).toContain('setEditFileDuration(-1)');
-    expect(admin).toContain('label: "Keep unchanged"');
-    expect(admin).toContain('duration.label + " (from save)"');
-    expect(admin).toContain("Delete file after");
-    expect(admin).toContain("File deletion: {timeText(record.fileExpiresAt)}");
-    expect(admin).not.toContain('type="datetime-local"');
-    expect(admin).toContain("Save");
+    expect(admin).toContain('if (saving) return;');
+    expect(admin).toContain('setEditError((e as Error).message)');
+    expect(admin).toContain('role="alert"');
     expect(worker).toContain('record.filename = (body.filename as string).trim()');
     expect(worker).toContain('record.expiresAt = expirationDate(body.fileExpiresIn as number)');
     expect(worker).not.toContain('"fileExpiresAt"');
