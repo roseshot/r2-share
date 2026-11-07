@@ -13,6 +13,7 @@ describe("safe file format selection", () => {
     expect(virusTotal).toBeGreaterThan(preview);
     expect(virusTotal).toBeLessThan(sha256);
     expect(sha256).toBeLessThan(download);
+    expect(share).toContain("file.checksums && file.virusTotal &&");
     expect(share).toContain('file.virusTotal?.status === "found"');
     expect(share).toContain("View on VirusTotal");
   });

@@ -324,7 +324,6 @@ describe("independent file and share expiration", () => {
     expect(await after.json()).toEqual({
       id: shareId, filename: entry.filename, size: entry.size, mime: entry.mime,
       checksums, originalModifiedAt, mode: "protected",
-      virusTotal: { status: "pending" },
     });
   });
 

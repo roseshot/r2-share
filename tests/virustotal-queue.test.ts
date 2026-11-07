@@ -91,16 +91,26 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(1);
     const publicView = await app.request("/api/files/" + first.shareId);
     expect(publicView.status).toBe(200);
-    expect(await publicView.json()).toMatchObject({
-      id: first.shareId, virusTotal: { status: "pending" },
+    const initialPublic = await publicView.json() as Record<string, unknown>;
+    expect(initialPublic.id).toBe(first.shareId);
+    expect(initialPublic).not.toHaveProperty("virusTotal");
+    const enable = await app.request("/secret-admin/api/files/" + first.id +
+      "/shares/" + first.shareId, {
+      method: "PATCH", headers: {
+        Origin: origin, Cookie: await app.cookie(), "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ showVirusTotal: true }),
+    });
+    expect(enable.status).toBe(200);
+    expect(await (await app.request("/api/files/" + first.shareId)).json()).toMatchObject({
+      virusTotal: { status: "pending" },
     });
     const admin = await app.request("/secret-admin/api/files/" + first.id + "/virustotal", {
       headers: { Cookie: await app.cookie() },
     });
     expect(await admin.json()).toEqual({ status: "pending" });
     const placeholder = await app.request("/api/files/abcdefghijk");
-    expect((await placeholder.json() as { virusTotal: { status: string } }).virusTotal)
-      .toEqual({ status: "pending" });
+    expect(await placeholder.json()).not.toHaveProperty("virusTotal");
     expect(await app.rows("SELECT * FROM virustotal_reports")).toHaveLength(0);
   });
 
@@ -123,7 +133,16 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
       status: "found", malicious: 0, suspicious: 1, harmless: 54, undetected: 11,
     });
     const response = await app.request("/api/files/" + first.shareId);
-    expect(await response.json()).toMatchObject({
+    expect(await response.json()).not.toHaveProperty("virusTotal");
+    const enabled = await app.request("/secret-admin/api/files/" + first.id +
+      "/shares/" + first.shareId, {
+      method: "PATCH", headers: {
+        Origin: origin, Cookie: await app.cookie(), "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ showVirusTotal: true }),
+    });
+    expect(enabled.status).toBe(200);
+    expect(await (await app.request("/api/files/" + first.shareId)).json()).toMatchObject({
       virusTotal: { status: "found", malicious: 0, suspicious: 1 },
     });
     const duplicate = await app.upload("persistent-report");

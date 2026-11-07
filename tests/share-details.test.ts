@@ -117,6 +117,13 @@ describe("server-generated missing share metadata", () => {
     expect(createPlaceholderShare(id, values).filename).toMatch(/\(1\)\.txt$/);
   });
 
+  test("never attaches VirusTotal metadata to placeholder shares", () => {
+    const decoy = createPlaceholderShare("Unknown12345", new Uint32Array(12));
+    expect(decoy).not.toHaveProperty("virusTotal");
+    const worker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
+    expect(worker).toContain("generatePlaceholderShare(id, c.env.SESSION_SECRET)");
+  });
+
   test("does not expose a missing share ID through the download error message", () => {
     const frontend = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
     expect(frontend).toContain("Server overloaded. Please try again.");

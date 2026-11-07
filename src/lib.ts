@@ -24,6 +24,7 @@ export type Share = {
 export type ManagedShare = {
   id: string;
   label: string;
+  showVirusTotal: boolean;
   mode: Mode;
   createdAt: string;
   shareExpiresAt: string | null;

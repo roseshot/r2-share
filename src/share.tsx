@@ -134,7 +134,7 @@ export default function SharePage() {
                   </span>
                 </div>
                 <FilePreview key={[id, file.filename, file.size, file.checksums?.sha256].join(":")} id={id} file={file} />
-                {file.checksums && <section className="mt-6 rounded-xl border border-zinc-200 p-4 dark:border-white/10"
+                {file.checksums && file.virusTotal && <section className="mt-6 rounded-xl border border-zinc-200 p-4 dark:border-white/10"
                   aria-label="VirusTotal reputation">
                   <h2 className="flex items-center gap-2 text-sm font-semibold">
                     <ShieldAlert size={17} aria-hidden="true" />VirusTotal

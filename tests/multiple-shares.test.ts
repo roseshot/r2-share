@@ -87,6 +87,8 @@ describe("independent multiple share links", () => {
     expect(first.headers.get("Cache-Control")).toBe("no-store");
     const decoy = await first.json() as Record<string, unknown>;
     expect(Object.keys(decoy).sort()).toEqual(Object.keys(real).sort());
+    expect(decoy).not.toHaveProperty("virusTotal");
+    expect(real).not.toHaveProperty("virusTotal");
     expect(decoy).toMatchObject({ id: unknown, mode: "public" });
     expect(decoy.filename).toMatch(/\.(pdf|jpg|zip|txt|mp4|xlsx)$/);
     expect(decoy.size).toBeGreaterThan(0);
@@ -162,6 +164,65 @@ describe("independent multiple share links", () => {
     const download = await app.request("/api/files/" + primaryId + "/download");
     expect(download.status).toBe(200);
     expect(await download.text()).toBe("sample");
+  });
+
+  test("keeps VirusTotal hidden by default and lets each share configure visibility independently", async () => {
+    const app = fixture();
+    const file = await app.createFile();
+    const sha256 = "b".repeat(64);
+    await saveRecord(app.env, { ...file, checksums: { sha256 } });
+    await app.env.DB.prepare(
+      "INSERT INTO virustotal_reports (sha256, report_json, checked_at) VALUES (?, ?, ?)"
+    ).bind(sha256, JSON.stringify({
+      status: "found", malicious: 1, suspicious: 2, harmless: 5, undetected: 3,
+    }), new Date().toISOString()).run();
+
+    const first = await app.request("/api/files/" + primaryId);
+    expect(await first.json()).not.toHaveProperty("virusTotal");
+    expect((await getShare(app.env, primaryId))?.showVirusTotal).toBe(false);
+    const another = await app.admin("/files/" + fileId + "/shares", "POST", {
+      mode: "public", shareExpiresIn: 3600,
+    });
+    expect(another.status).toBe(201);
+    const created = await another.json() as { share: { id: string; showVirusTotal: boolean } };
+    expect(created.share.showVirusTotal).toBe(false);
+    expect(await (await app.request("/api/files/" + created.share.id)).json())
+      .not.toHaveProperty("virusTotal");
+
+    const edit = await app.admin("/files/" + fileId + "/shares/" + created.share.id,
+      "PATCH", { showVirusTotal: true });
+    expect(edit.status).toBe(200);
+    expect(await edit.json()).toMatchObject({
+      share: { id: created.share.id, showVirusTotal: true },
+    });
+    expect(await (await app.request("/api/files/" + created.share.id)).json()).toMatchObject({
+      virusTotal: { status: "found", malicious: 1, suspicious: 2 },
+    });
+    expect(await (await app.request("/api/files/" + primaryId)).json())
+      .not.toHaveProperty("virusTotal");
+    expect(await (await app.admin("/files/" + fileId + "/shares")).json()).toMatchObject({
+      shares: expect.arrayContaining([
+        expect.objectContaining({ id: primaryId, showVirusTotal: false }),
+        expect.objectContaining({ id: created.share.id, showVirusTotal: true }),
+      ]),
+    });
+
+    const before = await getShare(app.env, created.share.id);
+    const off = await app.admin("/files/" + fileId + "/shares/" + created.share.id,
+      "PATCH", { showVirusTotal: false });
+    expect(off.status).toBe(200);
+    expect((await getShare(app.env, created.share.id))?.revision).toBe(before?.revision);
+    expect(await (await app.request("/api/files/" + created.share.id)).json())
+      .not.toHaveProperty("virusTotal");
+    for (const invalid of ["true", 1, null]) {
+      expect((await app.admin("/files/" + fileId + "/shares/" + created.share.id,
+        "PATCH", { showVirusTotal: invalid })).status).toBe(400);
+      expect((await app.admin("/files/" + fileId + "/shares", "POST", {
+        mode: "public", shareExpiresIn: 0, showVirusTotal: invalid,
+      })).status).toBe(400);
+    }
+    const decoy = await app.request("/api/files/abcdefghijk");
+    expect(await decoy.json()).not.toHaveProperty("virusTotal");
   });
 
   test("supports admin-only share names without invalidating access cookies", async () => {

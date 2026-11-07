@@ -146,6 +146,33 @@ describe("D1 SQLite migrations", () => {
     }
   });
 
+  test("keeps VirusTotal hidden by default for existing and newly created share links", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec(initial);
+      db.exec(shares);
+      db.exec(readFileSync(new URL("../migrations/0003_share_labels.sql", import.meta.url), "utf8"));
+      db.query("INSERT INTO files (id, record_json, created_at, expires_at) VALUES (?, ?, ?, ?)")
+        .run("fileExisting1234", "{}", "2026-11-01", null);
+      db.query("INSERT INTO shares (id, file_id, mode, revision, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run("shareExisting123", "fileExisting1234", "public", "revision", null, "2026-11-01");
+      db.exec(readFileSync(
+        new URL("../migrations/0009_share_virustotal_visibility.sql", import.meta.url), "utf8"));
+      expect(db.query("SELECT show_virustotal FROM shares WHERE id = 'shareExisting123'").get())
+        .toEqual({ show_virustotal: 0 });
+      db.query("INSERT INTO shares (id, file_id, mode, revision, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run("shareNew12345678", "fileExisting1234", "public", "revision", null, "2026-11-02");
+      expect(db.query("SELECT show_virustotal FROM shares WHERE id = 'shareNew12345678'").get())
+        .toEqual({ show_virustotal: 0 });
+      db.query("UPDATE shares SET show_virustotal = 1 WHERE id = 'shareExisting123'").run();
+      expect(db.query("SELECT show_virustotal FROM shares WHERE id = 'shareExisting123'").get())
+        .toEqual({ show_virustotal: 1 });
+      expect(() => db.query("UPDATE shares SET show_virustotal = 2").run()).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
   test("supports multiple links to the same file with separate permissions", () => {
     const db = new Database(":memory:");
     try {

@@ -36,6 +36,8 @@ export interface ShareRecord {
   id: string;
   fileId: string;
   label?: string;
+  /** Whether public visitors may see the VirusTotal card on this share. */
+  showVirusTotal: boolean;
   mode: Mode;
   revision: string;
   encryptedCode?: EncryptedCode;

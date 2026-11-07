@@ -16,6 +16,7 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
   const [duration, setDuration] = useState(86400);
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
+  const [showVirusTotal, setShowVirusTotal] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -26,7 +27,7 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
   const url = (id: string) => location.origin + "/" + id;
 
   function reset() {
-    setCreating(false); setEditing(null); setMode("public"); setCode(""); setLabel(""); setDuration(86400);
+    setCreating(false); setEditing(null); setMode("public"); setCode(""); setLabel(""); setShowVirusTotal(false); setDuration(86400);
   }
 
   async function submit(event: FormEvent) {
@@ -39,7 +40,8 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
         endpoint(editing ?? undefined), {
           method: changing ? "PATCH" : "POST",
           ...jsonBody({
-            label: label.trim(), mode, code: mode === "protected" && code.trim() ? code.trim() : undefined,
+            label: label.trim(), mode, showVirusTotal,
+            code: mode === "protected" && code.trim() ? code.trim() : undefined,
             shareExpiresIn: duration >= 0 ? duration : undefined,
           }),
         }
@@ -86,6 +88,7 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
     setEditing(share.id);
     setMode(share.mode);
     setLabel(share.label ?? "");
+    setShowVirusTotal(share.showVirusTotal);
     setCode("");
     setDuration(-1);
     setError("");
@@ -114,6 +117,7 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
               </Badge>
               <span>{share.shareExpiresAt && Date.parse(share.shareExpiresAt) <= Date.now() ? "Expired" : "Active"}</span>
               <span>Expires: {timeText(share.shareExpiresAt)}</span>
+              <span>VirusTotal: {share.showVirusTotal ? "Shown" : "Hidden"}</span>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -155,6 +159,11 @@ export default function AdminShares({ fileId, shares, api, onSaved }: {
             ]} />
         </div>
       </div>
+      <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <input type="checkbox" className="size-4 accent-emerald-600"
+          checked={showVirusTotal} onChange={event => setShowVirusTotal(event.target.checked)} />
+        Show VirusTotal on share page
+      </label>
       {mode === "protected" && <label className="block text-xs">
         Access code (leave blank to {editing ? "keep existing or generate" : "generate"})
         <Input className="mt-1" value={code} onChange={event => setCode(event.target.value)}

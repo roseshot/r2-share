@@ -229,8 +229,15 @@ and is never requested again for that hash, including when another identical
 file is uploaded. Existing files with verified hashes are queued once by the
 additive migration.
 
-Public share pages show a stored VirusTotal summary directly below the
-**File preview** area (before the SHA-256 verification section) when available,
+Each Share Link has a **Show VirusTotal on share page** option in
+Admin → Share links. This option is **off by default for new and existing
+links**. Only when explicitly enabled does the public share page receive
+a cached VirusTotal result and show the card and external link. SHA-256 remains
+visible regardless of this option. Placeholder Share IDs never include or
+display VirusTotal information.
+
+When enabled, public share pages show a stored VirusTotal summary directly below
+the **File preview** area (before the SHA-256 verification section) when available,
 plus a **View on VirusTotal** link that opens the external report in a new tab.
 A missing cached report shows a neutral pending message; opening a share,
 including a placeholder share, **never calls the VirusTotal API**. Protected
@@ -300,6 +307,7 @@ Versioned migrations:
 | `migrations/0004_storage_usage.sql` | Adds the cleanup-generated per-storage usage snapshot table |
 | `migrations/0006_virustotal_queue.sql` | Adds the persistent VirusTotal queue and report cache; queues existing checksums |
 | `migrations/0007_virustotal_cleanup.sql` | Clears previously orphaned VirusTotal queue entries and reports |
+| `migrations/0009_share_virustotal_visibility.sql` | Adds per-share VirusTotal visibility, disabled by default for existing shares |
 | `migrations/0005_public_upload_pages.sql` | Adds public uploader limits and associates upload reservations with pages |
 
 The `0002` migration preserves existing links' **IDs/URLs, access codes, and expiry**. File metadata retains compatibility fields from the initial schema; the `shares` table is authoritative for link access.
