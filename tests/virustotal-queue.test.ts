@@ -196,7 +196,7 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     const file = await app.upload("delete-associated-data");
     expect(await app.rows("SELECT * FROM shares")).toHaveLength(1);
     const response = await app.request("/secret-admin/api/files/" + file.id, {
-      method: "DELETE", headers: { Cookie: await app.cookie() },
+      method: "DELETE", headers: { Cookie: await app.cookie(), Origin: origin },
     });
     expect(response.status).toBe(200);
     expect(await getRecord(app.env, file.id)).toBeNull();
