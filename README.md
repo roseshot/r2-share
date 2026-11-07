@@ -135,12 +135,12 @@ jumps to the setup form.
 After upload, a file receives one initial share link. Its link ID matches the file ID; further links get independent random 16-character IDs.
 
 In **File management**, click the **file name** to replace that name with an inline
-input, or click **File deletion** to replace the remaining-time label with an inline
-relative-duration selector: **Never**, **1 hour**, **24 hours**, **3 days**, or **7 days**.
-**Save** and **Cancel** appear beside the active field, not in a separate settings panel.
-The deletion countdown starts when the new period is saved, not when the file was uploaded.
-The **Keep unchanged** option preserves the existing deadline. Cancel leaves the record
-unchanged.
+input and use **Save** or **Cancel** to confirm or discard the rename. Click **File deletion**
+to replace the remaining-time label with an inline relative-duration selector:
+**Never**, **1 hour**, **24 hours**, **3 days**, or **7 days**. Selecting a deletion
+period **saves immediately** without a separate Save or Cancel button. The countdown
+starts when that choice is saved, not when the file was uploaded. Opening the selector
+without choosing a duration leaves the existing deadline unchanged.
 
 Renaming changes D1 display metadata and the download filename, not the object storage
 key or existing share URLs. A file's expiration blocks access through all of its links

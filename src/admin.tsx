@@ -84,7 +84,6 @@ export default function Admin() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editKind, setEditKind] = useState<"name" | "expiration">("name");
   const [editFilename, setEditFilename] = useState("");
-  const [editFileDuration, setEditFileDuration] = useState(-1);
   const [editError, setEditError] = useState("");
   const [saving, setSaving] = useState(false);
   const [vtLoading, setVtLoading] = useState<string | null>(null);
@@ -339,7 +338,6 @@ export default function Admin() {
     setEditId(record.id);
     setEditKind(kind);
     setEditFilename(record.filename);
-    setEditFileDuration(-1); // The existing expiry is preserved until a new duration is saved.
     setEditError("");
   }
 
@@ -351,30 +349,34 @@ export default function Admin() {
 
   async function updateRecord(event: FormEvent) {
     event.preventDefault();
-    if (!editId || saving) return;
-    const updates: { filename?: string; fileExpiresIn?: number } = {};
-    if (editKind === "name") {
-      const name = editFilename.trim();
-      if (!name || name.length > 240 || /[\x00-\x1f\x7f]/.test(name)) {
-        setEditError("File name must be 1–240 characters without control characters");
-        return;
-      }
-      updates.filename = name;
-    } else {
-      if (!durations.some(duration => duration.seconds === editFileDuration)) {
-        setEditError("Choose a deletion period or Never");
-        return;
-      }
-      updates.fileExpiresIn = editFileDuration;
+    if (!editId || editKind !== "name" || saving) return;
+    const name = editFilename.trim();
+    if (!name || name.length > 240 || /[\x00-\x1f\x7f]/.test(name)) {
+      setEditError("File name must be 1–240 characters without control characters");
+      return;
     }
     setSaving(true); setEditError("");
     try {
       await requestJson(api("/files/" + editId), {
-        method: "PATCH", ...jsonBody(updates),
+        method: "PATCH", ...jsonBody({ filename: name }),
       });
       setVtResults(previous => { const next = { ...previous }; delete next[editId]; return next; });
       setEditId(null);
-      successToast(editKind === "name" ? "File renamed" : "File deletion period updated");
+      successToast("File renamed");
+      await refresh();
+    } catch (e) { setEditError((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  async function updateFileExpiration(record: ManagedFile, seconds: number) {
+    if (saving || !durations.some(duration => duration.seconds === seconds)) return;
+    setSaving(true); setEditError("");
+    try {
+      await requestJson(api("/files/" + record.id), {
+        method: "PATCH", ...jsonBody({ fileExpiresIn: seconds }),
+      });
+      setEditId(null);
+      successToast("File deletion period updated");
       await refresh();
     } catch (e) { setEditError((e as Error).message); }
     finally { setSaving(false); }
@@ -679,28 +681,27 @@ export default function Admin() {
                 <p className="mt-2 text-xs text-zinc-500">{sizeText(record.size)} · {new Date(record.createdAt).toLocaleString("en-US")}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-zinc-600 dark:text-zinc-400">
                   {editId === record.id && editKind === "expiration" ? (
-                    <form onSubmit={updateRecord} aria-label={"Edit file deletion period for " + record.filename}
+                    <div role="group" aria-label={"Edit file deletion period for " + record.filename}
                       className="flex min-w-0 flex-wrap items-center gap-2">
                       <label htmlFor="edit-file-expiration" className="shrink-0">File deletion:</label>
                       <Select id="edit-file-expiration" className="w-44 max-w-full" disabled={saving}
-                        value={String(editFileDuration)}
-                        onValueChange={value => { setEditFileDuration(Number(value)); setEditError(""); }}
+                        value="-1"
+                        onValueChange={value => {
+                          if (value === "-1") { cancelEdit(); return; }
+                          void updateFileExpiration(record, Number(value));
+                        }}
                         options={[
-                          { value: "-1", label: "Keep unchanged" },
+                          { value: "-1", label: "Choose period…" },
                           ...durations.map(duration => ({
                             value: String(duration.seconds),
                             label: duration.seconds === 0 ? "Never" : duration.label,
                           })),
                         ]} />
-                      <Button type="submit" size="sm" disabled={saving || editFileDuration < 0}>
-                        {saving ? "Saving…" : "Save"}
-                      </Button>
-                      <Button type="button" size="sm" variant="ghost" disabled={saving}
-                        onClick={cancelEdit}>Cancel</Button>
+                      {saving && <span role="status">Saving…</span>}
                       {editError && <p role="alert" className="w-full break-words text-red-700 dark:text-red-300">
                         {editError}
                       </p>}
-                    </form>
+                    </div>
                   ) : (
                     <button type="button" disabled={saving}
                       className="text-left underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-2 focus-visible:outline-emerald-400"
