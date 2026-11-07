@@ -37,7 +37,7 @@ export default function SharePage() {
           setFile({ id, mode: "protected" });
           throw new Error("Access expired. Enter the access code again.");
         }
-        if (response.status === 404) throw new Error("This share link or file is no longer available.");
+        // Do not reveal link availability in the public download error message.
         throw new Error("Download unavailable. Please try again.");
       }
       window.location.assign("/api/files/" + id + "/download");
