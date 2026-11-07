@@ -506,7 +506,7 @@ app.post("/:entry/api/uploads", async c => {
   }
   const code = mode === "protected" ? (body.code?.trim() || randomCode()) : undefined;
   if (code && code.length < 4) return jsonError("Access code must contain at least 4 characters");
-  // Storage IDs retain their original 96-bit Base64URL format.
+  // New file storage IDs use UUID v4; legacy records retain their original keys.
   let id = randomFileId();
   while (id === c.env.ADMIN_PATH || !await reserveUpload(c.env, id, storageId)) id = randomFileId();
   const shareId = randomId();

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   b64, decryptCode, encryptCode, equalText, randomCode, randomId, randomFileId, randomRevision, readToken, signToken,
 } from "../worker/crypto";
-import { validId, validStoredId } from "../worker/model";
+import { dataKey, validId, validStoredId, validUuidV4, validObjectKey } from "../worker/model";
 import type { FileRecord } from "../worker/model";
 
 const codeKey = b64(crypto.getRandomValues(new Uint8Array(32)));
@@ -50,14 +50,34 @@ describe("encrypted access codes", () => {
     for (const length of [8, 9, 10]) expect(validId("A".repeat(length))).toBe(true);
     expect(validId("invalid!")).toBe(false);
   });
-  test("retains 16-character, 96-bit file IDs independently of share IDs", () => {
+  test("generates UUID v4 file IDs independently of short share IDs", () => {
     const ids = Array.from({ length: 200 }, randomFileId);
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) {
-      expect(id).toMatch(/^[A-Za-z0-9_-]{16}$/);
+      expect(id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+      expect(validUuidV4(id)).toBe(true);
       expect(validStoredId(id)).toBe(true);
       expect(validId(id)).toBe(false);
+      expect(dataKey(id)).toBe("tuckbox/" + id);
+      expect(validObjectKey(dataKey(id))).toBe(true);
     }
+  });
+  test("keeps legacy file IDs on their original bucket keys without migrating objects", () => {
+    const legacy = "A_-a".repeat(4);
+    expect(validStoredId(legacy)).toBe(true);
+    expect(dataKey(legacy)).toBe("files/" + legacy);
+    expect(validObjectKey(dataKey(legacy))).toBe(true);
+  });
+  test("rejects malformed, wrong-version, and wrong-variant UUIDs and object paths", () => {
+    const id = randomFileId();
+    expect(validUuidV4(id.replace(/-4/, "-1"))).toBe(false);
+    expect(validUuidV4(id.replace(/-([89ab])/, "-0"))).toBe(false);
+    expect(validStoredId("A".repeat(35))).toBe(false);
+    expect(validStoredId("A".repeat(37))).toBe(false);
+    expect(validObjectKey("/tuckbox/" + id)).toBe(false);
+    expect(validObjectKey("files/" + id)).toBe(false);
+    expect(validObjectKey("tuckbox/" + "A_-a".repeat(4))).toBe(false);
+    expect(validObjectKey("tuckbox/" + id + "/other")).toBe(false);
   });
   test("randomly generated codes have eight display-safe characters", () => {
     expect(randomCode()).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);

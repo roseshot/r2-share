@@ -136,7 +136,8 @@ describe("public upload pages", () => {
     const start = await (a.status === 200 ? a : b).json() as { id: string; shareId: string; token: string };
     expect((await app.request("/api/public-uploads/" + id)).status).toBe(200);
     expect((await app.put(id, start)).status).toBe(200);
-    expect(start.id).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(start.id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+    expect(dataKey(start.id)).toBe("tuckbox/" + start.id);
     expect(start.shareId).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
     expect(app.objects.get(dataKey(start.id))).toBe("test");
     const record = await getRecord(app.env, start.id);

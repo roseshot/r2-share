@@ -19,7 +19,8 @@ export function randomId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(9));
   return b64(bytes.subarray(1)).slice(0, 8 + bytes[0] % 3);
 }
-export const randomFileId = (): string => b64(crypto.getRandomValues(new Uint8Array(12)));
+// File storage IDs are UUID v4; share IDs keep their independent short format.
+export const randomFileId = (): string => crypto.randomUUID();
 export const randomRevision = (): string => b64(crypto.getRandomValues(new Uint8Array(16)));
 export function randomCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

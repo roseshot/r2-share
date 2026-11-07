@@ -184,12 +184,15 @@ to reject missing, expired, or unauthorized shares. Download/preview attempts
 on decoy details return an error. The actual administrator path is identified
 using the authenticated session probe.
 
-File IDs and public upload page IDs remain 16-character Base64URL values
-(96 random bits). Real share-link IDs are independently generated as 8, 9, or 10
-Base64URL characters (48-60 random bits). Initial shares no longer reuse the
-file ID. Legacy 16-character share links are not accepted, but file records
-retain their original IDs in storage and administrative APIs. Shorter share
-IDs are easier to enumerate than 96-bit IDs; deploy edge rate limiting.
+New file IDs are UUID v4 (36 characters; 122 random bits). New objects are stored
+under the bucket-root prefix `tuckbox/<file-uuid>` in both B2 and R2.
+Existing 16-character file IDs and their `files/<legacy-id>` bucket objects
+remain readable and deletable without migration. Public upload page IDs still
+use 16-character Base64URL values (96 random bits). Real share-link IDs are
+independently generated as 8, 9, or 10 Base64URL characters (48-60 random
+bits); the initial share ID does not reuse the file ID. Legacy 16-character
+share links are not accepted. Shorter share IDs are easier to enumerate;
+deploy edge rate limiting.
 
 In **File management**, click the **file name** to replace that name with an inline
 input and use **Save** or **Cancel** to confirm or discard the rename. Click **File deletion**
@@ -347,7 +350,9 @@ apply to HEAD and partial requests.
 - **Private buckets and least-privilege credentials:** grant only required bucket/object operations; do not expose B2/R2 credentials to the browser.
 - **Access scope:** public links are bearer URLs; anyone with a valid public URL can access its file. Share links are not user accounts, and an access code is not end-to-end encryption.
 - **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**, then refreshes the D1 `storage_usage` snapshot; large deletion backlogs require subsequent runs.
-- **Data deletion:** file deletion targets the specific recorded storage ID and the `files/<file-id>` object. It does not enumerate or purge unrelated bucket objects.
+- **Data deletion:** file deletion targets the recorded storage ID and its
+`tuckbox/<file-uuid>` object (or `files/<legacy-id>` for existing records).
+It does not enumerate or purge unrelated bucket objects.
 - **Monitoring:** check Cloudflare deployment logs, Worker errors, D1 migrations, and scheduled cleanup. Treat GitHub CI and Cloudflare deployment as separate status checks.
 - **Resource limits:** maximum upload size is **90 MiB**; the administrator file list returns at most **500 files**. single HTTP byte ranges are supported with **206 Partial Content** (multipart ranges return **416**).
 - **Credentials and recovery:** keep a secure backup of `APP_MASTER_KEY`, use long unique administrator credentials, and test D1 backups and object storage recovery before production changes.

@@ -1,5 +1,5 @@
 import { AwsClient } from "aws4fetch";
-import { validStorageId, type Bindings, type StorageConfig } from "./model";
+import { validObjectKey, validStorageId, type Bindings, type StorageConfig } from "./model";
 
 export interface ObjectInfo {
   size: number;
@@ -59,7 +59,7 @@ export function b2ObjectUrl(region: string, bucket: string, key = ""): string {
   // The region is deliberately constrained: never allow an arbitrary upstream host.
   if (!/^[a-z]{2}-[a-z0-9-]+-\d{3}$/.test(region)) throw new Error("Invalid B2 region");
   if (!/^[a-z0-9][a-z0-9.-]{4,61}[a-z0-9]$/.test(bucket)) throw new Error("Invalid B2 bucket name");
-  if (key && !/^files\/[A-Za-z0-9_-]{16}$/.test(key)) {
+  if (key && !validObjectKey(key)) {
     throw new Error("Invalid storage object key");
   }
   return `https://s3.${region}.backblazeb2.com/${bucket}${key ? "/" + key : ""}`;
@@ -68,7 +68,7 @@ export function b2ObjectUrl(region: string, bucket: string, key = ""): string {
 export function r2ObjectUrl(accountId: string, bucket: string, key = ""): string {
   if (!/^[a-f0-9]{32}$/i.test(accountId)) throw new Error("Invalid R2 account ID");
   if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("Invalid R2 bucket name");
-  if (key && !/^files\/[A-Za-z0-9_-]{16}$/.test(key)) {
+  if (key && !validObjectKey(key)) {
     throw new Error("Invalid storage object key");
   }
   return `https://${accountId.toLowerCase()}.r2.cloudflarestorage.com/${bucket}${key ? "/" + key : ""}`;
@@ -162,7 +162,7 @@ function s3Store(options: {
       }
     },
     async list({ prefix, limit, cursor }) {
-      if (prefix !== "files/") throw new Error("Invalid list prefix");
+      if (prefix !== "files/" && prefix !== "tuckbox/") throw new Error("Invalid list prefix");
       const query = new URL(root);
       query.searchParams.set("list-type", "2");
       query.searchParams.set("prefix", prefix);

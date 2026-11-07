@@ -69,7 +69,16 @@ export const shareExpiry = (record: FileRecord): string | null => record.shareEx
 export const shareExpired = (record: FileRecord): boolean =>
   expired(record) || (shareExpiry(record) !== null && Date.parse(shareExpiry(record)!) <= Date.now());
 export const validId = (id: string): boolean => /^[A-Za-z0-9_-]{8,10}$/.test(id);
-export const validStoredId = (id: string): boolean => /^[A-Za-z0-9_-]{16}$/.test(id);
-export const dataKey = (id: string): string => "files/" + id;
+const legacyFileId = (id: string): boolean => /^[A-Za-z0-9_-]{16}$/.test(id);
+export const validUuidV4 = (id: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+// Accept existing 16-character file records; never generate new legacy IDs.
+export const validStoredId = (id: string): boolean => validUuidV4(id) || legacyFileId(id);
+// S3 object keys are relative to the bucket root, without a leading slash.
+export const dataKey = (id: string): string =>
+  (validUuidV4(id) ? "tuckbox/" : "files/") + id;
+export const validObjectKey = (key: string): boolean =>
+  (key.startsWith("tuckbox/") && validUuidV4(key.slice("tuckbox/".length))) ||
+  (key.startsWith("files/") && legacyFileId(key.slice("files/".length)));
 export const expired = (f: FileRecord): boolean =>
   f.expiresAt !== null && Date.parse(f.expiresAt) <= Date.now();

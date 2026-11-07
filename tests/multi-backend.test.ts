@@ -113,6 +113,8 @@ describe("multiple object storage IDs", () => {
     for (const storage of storages) {
       const text = "file for " + storage.id;
       const id = await app.upload(storage.id, text);
+      expect(id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+      expect(dataKey(id)).toBe("tuckbox/" + id);
       expect(app.maps[storage.id].get(dataKey(id))).toBe(text);
       expect((await getRecord(app.env, id))?.storageId).toBe(storage.id);
       for (const other of storages.filter(s => s.id !== storage.id)) {
