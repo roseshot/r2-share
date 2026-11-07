@@ -241,7 +241,7 @@ A link can be **Public** (anyone with the URL) or **Access code protected**. Acc
 Supported expiration choices are **Never**, **1 hour**, **24 hours**, **3 days**, and **7 days**. A share's expiration immediately blocks access through that link but does **not** delete the file or affect sibling links. File expiration blocks all links and the scheduled cleanup later deletes the file object. New uploads have no file expiration unless an administrator changes it.
 
 VirusTotal integration is optional. Successful uploads (including public-upload
-pages) queue their verified **SHA-256** in D1. The existing six-hour cron
+pages) queue their verified **SHA-256** in D1. The daily 00:01 UTC cron
 processes at most **four distinct hashes per run**, sending only SHA-256 values
 to VirusTotal (never file bytes or share URLs). Missing reports, temporary
 failures, and API throttling stay queued and retry on a later cron; no API
@@ -270,12 +270,12 @@ sample with other parties. The **Submit to VirusTotal** button disappears
 immediately after authorization and remains hidden after page refresh or sign-in
 when that SHA-256 is authorized, submitted, or already has a cached report.
 It also stays hidden for duplicate files with the same SHA-256. This records
-authorization in D1 for that **file ID only**. On the next six-hour job, the Worker checks SHA-256 first; only if no
+authorization in D1 for that **file ID only**. On the next daily 00:01 UTC job, the Worker checks SHA-256 first; only if no
 report exists will it stream the authorized file's bytes from the private bucket
 to VirusTotal. Files up to 32 MiB use `POST /files`; larger TuckBox files use
 VirusTotal's single-use `/files/upload_url`, restricted to a HTTPS VirusTotal
 upload endpoint. Once accepted, the queue never uploads that hash again; it
-keeps querying the hash every six hours until a report is saved. Deleting the
+keeps querying the hash once a day until a report is saved. Deleting the
 authorized file revokes authorization even when identical content remains.
 No file is uploaded solely because it entered the normal hash lookup queue. When a file is deleted (manually or by expiration), its D1 file
 record, share links, residual upload session, and unreferenced VirusTotal queue
@@ -297,7 +297,7 @@ The file management screen provides server-side filename search, storage filteri
 
 The dashboard's **Storage used** section shows a separate D1-backed snapshot for each configured
 Storage ID: bytes stored, managed file count, and the last cleanup calculation time.
-After every scheduled **file cleanup** (every 6 hours), the Worker counts the sizes
+After every scheduled **file cleanup** (daily at 00:01 UTC), the Worker counts the sizes
 of the **remaining file records in D1**, including any expired files still awaiting
 a later cleanup batch, and atomically replaces the per-storage usage snapshot in D1.
 Unused storage IDs are recorded as **0 B / 0 files**. Before the first cleanup, the
@@ -317,7 +317,7 @@ D1 holds six tables:
 | `upload_sessions` | In-progress upload reservations associated with a storage ID |
 | `app_settings` | Encrypted storage configurations and optional VirusTotal key |
 | `storage_usage` | Cleanup-recalculated bytes and file counts per configured Storage ID |
-| `virustotal_queue` | Pending SHA-256 reputation lookups and six-hour retries |
+| `virustotal_queue` | Pending SHA-256 reputation lookups and daily retries |
 | `virustotal_reports` | Permanent successful VirusTotal summaries, keyed by SHA-256 |
 | `public_upload_pages` | Public uploader links, expiry dates and completed-upload quotas |
 
@@ -424,7 +424,7 @@ apply to HEAD and partial requests.
 
 - **Private buckets and least-privilege credentials:** grant only required bucket/object operations; do not expose B2/R2/AWS S3 credentials to the browser.
 - **Access scope:** public links are bearer URLs; anyone with a valid public URL can access its file. Share links are not user accounts, and an access code is not end-to-end encryption.
-- **Expiration cleanup:** the Worker runs a cron every **6 hours** (`0 */6 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**, refreshes the D1 `storage_usage` snapshot, and processes up to **4 pending VirusTotal hashes**; large deletion backlogs require subsequent runs.
+- **Expiration cleanup:** the Worker runs a cron **daily at 00:01 UTC** (`1 0 * * *`). Each run removes at most **10 expired files** and **10 abandoned upload sessions**, refreshes the D1 `storage_usage` snapshot, and processes up to **4 pending VirusTotal hashes**; large deletion backlogs require subsequent runs.
 - **Data deletion:** file deletion targets the recorded storage ID and its
 `tuckbox/<file-uuid>` object (or `files/<legacy-id>` for existing records).
 It does not enumerate or purge unrelated bucket objects.

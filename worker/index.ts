@@ -639,7 +639,7 @@ app.get("/:entry/api/files/:id/virustotal", async c => {
   return c.json(await getCachedVirusTotalReport(c.env, record.checksums.sha256));
 });
 
-// Explicit per-file administrator consent. The six-hour cron checks SHA-256
+// Explicit per-file administrator consent. The daily cron checks SHA-256
 // before uploading any bytes to VirusTotal, never an unapproved file.
 app.post("/:entry/api/files/:id/virustotal/upload", async c => {
   const id = c.req.param("id");
@@ -890,7 +890,7 @@ export default {
   async scheduled(controller: ScheduledController, env: Bindings): Promise<void> {
     const configured = await resolveBindings(env);
     if (!await readAppSettings(env)) return;
-    if (controller.cron === "0 */6 * * *") {
+    if (controller.cron === "1 0 * * *") {
       await cleanupExpired(configured);
       await processVirusTotalQueue(configured);
     }

@@ -205,10 +205,12 @@ export async function submitAuthorizedVirusTotalFile(
 }
 
 const maxLookupPerCron = 4;
+// The six-hour cooldown prevents duplicate claims while still allowing the next
+// daily trigger even when its actual dispatch time varies slightly.
 const retryAfterMs = 6 * 60 * 60 * 1000;
 
 /**
- * Process up to four due hashes on the existing six-hour cron. Claims are
+ * Process up to four due hashes on the daily 00:01 UTC cron. Claims are
  * conditional D1 updates, preventing concurrent runs from fetching one hash
  * more than once. Only a valid 'found' report is persisted permanently.
  * Missing reports, rate limits and failures remain queued for retry.
@@ -284,7 +286,7 @@ export async function processVirusTotalQueue(
         break;
       }
     }
-    // Other failures stay queued until the next six-hour run.
+    // Other failures stay queued until the next daily run.
   }
   return saved;
 }

@@ -48,7 +48,7 @@ function virusTotalSummary(report: VirusTotalReport): string {
   switch (report.status) {
     case "found":
       return `VirusTotal: ${report.malicious ?? 0} malicious, ${report.suspicious ?? 0} suspicious, ${report.harmless ?? 0} harmless, ${report.undetected ?? 0} undetected. No detections does not guarantee safety.`;
-    case "pending": return "Report pending. The Worker checks queued hashes every 6 hours.";
+    case "pending": return "Report pending. The Worker checks queued hashes daily at 00:01 UTC.";
     case "not_found": return "VirusTotal has no report for this SHA-256.";
     case "not_configured": return "Set a VirusTotal API key in Application settings to enable lookups.";
     case "rate_limited": return "VirusTotal rate limit reached. Try again later.";
@@ -393,7 +393,7 @@ export default function Admin() {
         { method: "POST", ...jsonBody({}) },
       );
       successToast(result.status === "authorized"
-        ? "VirusTotal upload authorized for the next six-hour scan"
+        ? "VirusTotal upload authorized for the next daily scan at 00:01 UTC"
         : result.status === "submitted" ? "This sample was already submitted to VirusTotal"
           : "VirusTotal report is already cached");
       // Hide immediately; the server list also computes the state from D1 so
@@ -736,7 +736,7 @@ export default function Admin() {
                   : "Usage is calculated after the next file cleanup."}
               </p>
             </section>
-            <div className="flex items-center justify-between"><span>File cleanup</span><Badge>Every 6 hours</Badge></div>
+            <div className="flex items-center justify-between"><span>File cleanup</span><Badge>Daily 00:01 UTC</Badge></div>
             <div className="flex items-center justify-between"><span>Share links</span><Badge variant="muted">Configurable expiry</Badge></div>
           </div>
         </Card>

@@ -82,7 +82,7 @@ const resultJson = () => Response.json({
   }, last_analysis_date: 1750000000 } },
 });
 
-describe("VirusTotal six-hour D1 queue and share cache", () => {
+describe("VirusTotal daily D1 queue and share cache", () => {
   test("queues uploads by SHA-256 and never queries VirusTotal on public or admin reads", async () => {
     const app = setup();
     const first = await app.upload("same-content");
@@ -164,7 +164,7 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     expect(calls).toBe(2);
   });
 
-  test("keeps 404 and 429 results queued for another six-hour run", async () => {
+  test("keeps 404 and 429 results queued for the next daily run", async () => {
     const app = setup();
     const uploaded = await app.upload("retry-me");
     const now = Date.now();
@@ -175,13 +175,13 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     expect(await processVirusTotalQueue(app.env, undefined, missing, now + 1)).toBe(0);
     expect(calls).toBe(1);
     const throttled: typeof fetch = async () => { calls++; return new Response(null, { status: 429 }); };
-    expect(await processVirusTotalQueue(app.env, undefined, throttled, now + 6 * 3600000)).toBe(0);
+    expect(await processVirusTotalQueue(app.env, undefined, throttled, now + 24 * 3600000)).toBe(0);
     expect(calls).toBe(2);
     expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(1);
     expect(await processVirusTotalQueue(app.env, undefined, async () => {
       calls++;
       return resultJson();
-    }, now + 12 * 3600000)).toBe(1);
+    }, now + 48 * 3600000)).toBe(1);
     expect(calls).toBe(3);
     expect((await getCachedVirusTotalReport(app.env, uploaded.sha256)).status).toBe("found");
   });
@@ -318,9 +318,9 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     // specifically verifies the authorized file's transition to cached.
     await app.env.DB.prepare(
       "UPDATE virustotal_queue SET next_attempt_at = ? WHERE sha256 = ?"
-    ).bind(Date.now() + 12 * 3600000, unrelated.sha256).run();
+    ).bind(Date.now() + 48 * 3600000, unrelated.sha256).run();
     expect(await processVirusTotalQueue(app.env, undefined,
-      async () => resultJson(), Date.now() + 6 * 3600000)).toBe(1);
+      async () => resultJson(), Date.now() + 24 * 3600000)).toBe(1);
     expect((await list()).get(second.id)).toBe(false);
     expect((await list()).get(unrelated.id)).toBe(true);
   });
@@ -367,16 +367,16 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
       expect(content).toContain("authorized-sample");
       return Response.json({ data: { type: "analysis", id: "analysis-123" } });
     };
-    expect(await processVirusTotalQueue(app.env, undefined, submit, started + 6 * 3600000)).toBe(0);
+    expect(await processVirusTotalQueue(app.env, undefined, submit, started + 24 * 3600000)).toBe(0);
     expect(submits).toBe(1);
     const state = await app.rows("SELECT upload_file_id, upload_submitted_at FROM virustotal_queue");
     expect(state).toHaveLength(1);
     expect(state[0].upload_file_id).toBe(file.id);
     expect(typeof state[0].upload_submitted_at).toBe("number");
-    expect(await processVirusTotalQueue(app.env, undefined, submit, started + 12 * 3600000)).toBe(0);
+    expect(await processVirusTotalQueue(app.env, undefined, submit, started + 48 * 3600000)).toBe(0);
     expect(submits).toBe(1); // Never submit bytes twice.
     expect(await processVirusTotalQueue(app.env, undefined,
-      async () => resultJson(), started + 18 * 3600000)).toBe(1);
+      async () => resultJson(), started + 72 * 3600000)).toBe(1);
     expect((await getCachedVirusTotalReport(app.env, file.sha256)).status).toBe("found");
     const cached = await app.request(endpoint, {
       method: "POST", headers: { Cookie: await app.cookie(), Origin: origin },
@@ -402,11 +402,11 @@ describe("VirusTotal six-hour D1 queue and share cache", () => {
     expect(postCalls).toBe(0);
   });
 
-  test("the scheduled handler runs queue processing on the existing six-hour cron", async () => {
+  test("the scheduled handler runs queue processing on the daily 00:01 UTC cron", async () => {
     const app = setup();
     await saveAppSettings(app.env, { storages: [storage], virusTotalApiKey: "vt-private-test-key" });
     // No network calls when there are no queued hashes.
-    await handler.scheduled({ cron: "0 */6 * * *" } as ScheduledController, app.env);
+    await handler.scheduled({ cron: "1 0 * * *" } as ScheduledController, app.env);
     expect(await app.rows("SELECT * FROM virustotal_queue")).toHaveLength(0);
   });
 });

@@ -68,7 +68,7 @@ describe("environment-injected D1 deployment", () => {
     expect(config.assets).toEqual({
       binding: "ASSETS", run_worker_first: true, html_handling: "none",
     });
-    expect(config.triggers.crons).toEqual(["0 */6 * * *"]);
+    expect(config.triggers.crons).toEqual(["1 0 * * *"]);
     expect(config.secrets.required).toHaveLength(3);
     expect(config.vars).toBeUndefined();
     const migrations = readdirSync(new URL("../migrations/", import.meta.url)).filter(name => name.endsWith(".sql")).sort();
