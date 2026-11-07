@@ -8,7 +8,7 @@ const shares = readFileSync(new URL("../migrations/0002_file_shares.sql", import
 describe("D1 SQLite migrations", () => {
   test("keeps the initial schema and adds a separate additive migration", () => {
     expect(readdirSync(new URL("../migrations/", import.meta.url)).filter(name => name.endsWith(".sql")).sort())
-      .toEqual(["0001_initial.sql", "0002_file_shares.sql", "0003_share_labels.sql", "0004_storage_usage.sql", "0005_public_upload_pages.sql", "0006_virustotal_queue.sql", "0007_virustotal_cleanup.sql", "0008_virustotal_manual_upload.sql"]);
+      .toEqual(["0001_initial.sql", "0002_file_shares.sql", "0003_share_labels.sql", "0004_storage_usage.sql", "0005_public_upload_pages.sql", "0006_virustotal_queue.sql", "0007_virustotal_cleanup.sql", "0008_virustotal_manual_upload.sql", "0009_share_virustotal_visibility.sql"]);
     expect(initial).not.toContain("CREATE TABLE IF NOT EXISTS shares");
     expect(shares).toContain("CREATE TABLE IF NOT EXISTS shares");
     expect(shares).not.toMatch(/DROP\s+TABLE|DELETE\s+FROM/i);
