@@ -5,6 +5,7 @@ import {
   ShieldAlert, ShieldCheck, Trash2, X
 } from "lucide-react";
 import { Badge, Button, Card, Input, Select, buttonStyles } from "./ui";
+import { version as appVersion } from "../package.json";
 import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile, type Mode } from "./lib";
 import { originalModificationDate } from "./file-info";
 import { ThemeSwitcher } from "./theme";
@@ -438,7 +439,11 @@ export default function Admin() {
         <div className="flex items-center gap-3">
           <img src="/tuckbox-mark.svg" width="44" height="44" className="size-11" alt="" aria-hidden="true" />
           <div>
-            <p className="text-xl font-semibold tracking-tight">TuckBox <span className="ml-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">ADMIN</span></p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xl font-semibold tracking-tight">TuckBox</p>
+              <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">ADMIN</span>
+              <Badge variant="muted">v{appVersion}</Badge>
+            </div>
             <p className="mt-0.5 text-xs text-zinc-500">File sharing dashboard</p>
           </div>
         </div>

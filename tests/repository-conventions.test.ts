@@ -49,6 +49,23 @@ describe("repository conventions", () => {
     expect(storage).toContain("Backblaze B2");
   });
 
+  test("shows the package version beside the admin logo without duplicating a version string", () => {
+    const admin = readFileSync(resolve(root, "src/admin.tsx"), "utf8");
+    const { version } = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+    expect(version).toMatch(/^[0-9]+[.][0-9]+[.][0-9]+(?:[-+][A-Za-z0-9.-]+)?$/);
+    expect(admin).toContain('import { version as appVersion } from "../package.json"');
+    const header = admin.slice(admin.indexOf('<header className='));
+    expect(header).toContain('src="/tuckbox-mark.svg"');
+    const brand = header.indexOf('>TuckBox</p>');
+    const badge = header.indexOf('<Badge variant="muted">v{appVersion}</Badge>');
+    const subtitle = header.indexOf('File sharing dashboard');
+    expect(brand).toBeGreaterThanOrEqual(0);
+    expect(badge).toBeGreaterThan(brand);
+    expect(badge).toBeLessThan(subtitle);
+    expect(header).toContain('>ADMIN</span>');
+    expect(header).not.toContain('>v' + version + '</Badge>');
+  });
+
   test("uses file sharing language without private or temporary product positioning", () => {
     const home = readFileSync(resolve(root, "src/home.tsx"), "utf8");
     const admin = readFileSync(resolve(root, "src/admin.tsx"), "utf8");
