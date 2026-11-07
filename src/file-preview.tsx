@@ -4,7 +4,7 @@ import { Button } from "./ui";
 import { previewFormat } from "./preview-types";
 import type { Share } from "./lib";
 
-export function FilePreview({ file, id }: { file: Share; id: string }) {
+export function FilePreview({ file, id, disabled = false }: { file: Share; id: string; disabled?: boolean }) {
   const format = previewFormat(file.filename ?? "", file.mime);
   const [opened, setOpened] = useState(false);
   const [activated, setActivated] = useState(false);
@@ -47,6 +47,7 @@ export function FilePreview({ file, id }: { file: Share; id: string }) {
   }, [activated, format?.kind, file.size, previewURL, text, error]);
 
   function togglePreview() {
+    if (disabled) return;
     if (opened) {
       audioRef.current?.pause();
       videoRef.current?.pause();
@@ -66,7 +67,7 @@ export function FilePreview({ file, id }: { file: Share; id: string }) {
         <Eye size={17} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
         File preview
       </h2>
-      <Button size="sm" variant="ghost" onClick={togglePreview}
+      <Button size="sm" variant="ghost" onClick={togglePreview} disabled={disabled}
         aria-expanded={opened} aria-controls="preview-details">
         {opened ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         {opened ? "Hide" : "Preview"}

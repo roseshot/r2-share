@@ -48,13 +48,20 @@ export function timeText(iso: string | null): string {
   if (left < 86400000) return Math.ceil(left / 3600000) + " hours";
   return Math.ceil(left / 86400000) + " days";
 }
+export class RequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "RequestError";
+  }
+}
+
 export async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   const result = await fetch(url, { credentials: "same-origin", cache: "no-store", ...options });
   const body: unknown = await result.json().catch(() => null);
   if (!result.ok) {
     const message = body && typeof body === "object" && "error" in body &&
       typeof body.error === "string" ? body.error : "Request failed (" + result.status + ")";
-    throw new Error(message);
+    throw new RequestError(message, result.status);
   }
   return body as T;
 }
