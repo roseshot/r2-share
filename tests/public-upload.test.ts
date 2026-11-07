@@ -91,13 +91,20 @@ describe("public upload pages", () => {
     const id = await app.create();
     const list = await app.admin("/public-uploads");
     expect((await list.json() as { pages: { id: string }[] }).pages[0].id).toBe(id);
-    const html = await app.request("/upload/" + id);
+    const html = await app.request("/u/" + id);
     expect(html.status).toBe(200);
-    expect((await app.request("/upload/not-valid")).status).toBe(404);
+    for (const path of ["/u/not-valid", "/u/ABCDEFGHIJKLMNOP", "/upload/" + id]) {
+      const unknown = await app.request(path);
+      expect(unknown.status).toBe(302);
+      expect(unknown.headers.get("Location")).toBe("/");
+    }
     expect((await app.request("/hidden-admin/api/public-uploads/" + id, {
       method: "DELETE", headers: { Origin: origin },
     })).status).toBe(401);
     expect((await app.admin("/public-uploads/" + id, "DELETE")).status).toBe(200);
+    const removedPage = await app.request("/u/" + id);
+    expect(removedPage.status).toBe(302);
+    expect(removedPage.headers.get("Location")).toBe("/");
     expect((await app.request("/api/public-uploads/" + id)).status).toBe(404);
     expect((await app.initiate(id)).status).toBe(404);
   });

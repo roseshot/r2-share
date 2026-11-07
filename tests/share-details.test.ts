@@ -23,7 +23,7 @@ describe("unavailable share presentation", () => {
     expect(result.file.id).toBe(id);
     expect(result.file.mode).toBe("public");
     expect(result.file.filename).toMatch(/\.(pdf|jpg|zip|txt|mp4|xlsx)$/);
-    expect(result.file.size).toBeGreaterThanOrEqual(1024);
+    expect(result.file.size).toBeGreaterThanOrEqual(200);
     expect(result.file.size).toBeLessThan(90 * 1024 * 1024);
     expect(result.file.mime).toBeTruthy();
     expect(Date.parse(result.file.originalModifiedAt!)).toBeLessThan(Date.now());
@@ -44,12 +44,12 @@ describe("unavailable share presentation", () => {
     ] as const;
     const extensions = ["pdf", "jpg", "zip", "txt", "mp4", "xlsx"];
     const sizes = [
-      [16 * 1024, 8 * 1024 * 1024],
-      [150 * 1024, 10 * 1024 * 1024],
-      [1024 * 1024, 85 * 1024 * 1024],
-      [1024, 64 * 1024],
-      [6 * 1024 * 1024, 88 * 1024 * 1024],
-      [12 * 1024, 4 * 1024 * 1024],
+      [80 * 1024, 4 * 1024 * 1024],
+      [300 * 1024, 5 * 1024 * 1024],
+      [2 * 1024 * 1024, 40 * 1024 * 1024],
+      [200, 12 * 1024],
+      [8 * 1024 * 1024, 88 * 1024 * 1024],
+      [16 * 1024, 800 * 1024],
     ];
     for (let category = 0; category < expected.length; category++) {
       values[0] = category;
@@ -65,6 +65,9 @@ describe("unavailable share presentation", () => {
           else expect(file.filename).toMatch(pattern);
         }
       }
+      values[2] = 0xffffffff;
+      expect(createPlaceholderShare(id, values).size).toBeLessThanOrEqual(sizes[category][1]);
+      values[2] = 0;
     }
   });
 

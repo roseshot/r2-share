@@ -31,9 +31,10 @@ describe("public and private page routing", () => {
   });
 
   test("routes a public uploader separately from admin and download links", () => {
-    expect(routeForPath("/upload/ABCDEFGHIJKLMNOP")).toBe("public-upload");
-    expect(routeForPath("/upload/not-an-id")).toBe("not-found");
-    expect(routeForPath("/upload/ABCDEFGHIJKLMNOP/files")).toBe("not-found");
+    expect(routeForPath("/u/ABCDEFGHIJKLMNOP")).toBe("public-upload");
+    expect(routeForPath("/u/not-an-id")).toBe("not-found");
+    expect(routeForPath("/u/ABCDEFGHIJKLMNOP/files")).toBe("not-found");
+    expect(routeForPath("/upload/ABCDEFGHIJKLMNOP")).toBe("not-found");
   });
 
   test("accepts only same-origin root-level share links or bare IDs", () => {

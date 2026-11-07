@@ -731,9 +731,9 @@ app.get("/:entry/api/files/:id/download", async c => {
   return streamFile(c.env, record, false, c.req.raw);
 });
 
-app.get("/upload/:id", async c => {
+app.get("/u/:id", async c => {
   const page = await getPublicUploadPage(c.env, c.req.param("id"));
-  if (!page) return c.text("Not found", 404);
+  if (!page) return c.redirect("/", 302);
   return serveHtml(c.req.raw, c.env);
 });
 
@@ -742,7 +742,7 @@ app.get("/tuckbox-mark.svg", c => c.env.ASSETS.fetch(c.req.raw));
 app.get("/:entry", async c => {
   const entry = c.req.param("entry");
   // Render the branded page even for an unknown or malformed share ID.
-  // The client fetches metadata via /api/files/:id and displays "Link unavailable".
+  // The client fetches metadata and shows a non-downloadable placeholder for missing shares.
   // This HTML response grants no file access; download routes still enforce authorization.
   if (!/^[a-zA-Z0-9_-]+$/.test(entry)) return c.notFound();
   return serveHtml(c.req.raw, c.env);
@@ -754,7 +754,16 @@ app.get("/@react-refresh", c => c.env.ASSETS.fetch(c.req.raw));
 app.get("/src/*", c => c.env.ASSETS.fetch(c.req.raw));
 app.get("/node_modules/*", c => c.env.ASSETS.fetch(c.req.raw));
 
-app.notFound(c => c.text("Not found", 404));
+app.notFound(c => {
+  const path = c.req.path;
+  const resource = path === "/api" || path.startsWith("/api/") || path.includes("/api/") ||
+    ["/assets/", "/@vite/", "/src/", "/node_modules/"].some(prefix => path.startsWith(prefix)) ||
+    path === "/@react-refresh";
+  if ((c.req.method === "GET" || c.req.method === "HEAD") && !resource) {
+    return c.redirect("/", 302);
+  }
+  return c.text("Not found", 404);
+});
 app.onError((error) => { console.error("Internal server error:", error.name); return jsonError("Internal server error", 500); });
 
 async function readJson<T>(request: Request): Promise<T | null> {

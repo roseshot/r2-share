@@ -141,7 +141,7 @@ Set a page title, destination Storage ID, and at least one limit:
   consume one slot. A page can be count-limited with no time limit, or time-limited
   with no count limit.
 
-Share the generated `https://your-domain/upload/<page-id>` URL. Visitors do **not**
+Share the generated `https://your-domain/u/<page-id>` URL. Visitors do **not**
 need administrator credentials. They can choose files, select folders (compressed
 locally into ZIP), drag files/folders, or paste files, screenshots, and text.
 Files must be nonempty and at most **90 MiB each**. Uploaded files are stored in

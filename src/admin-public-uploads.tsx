@@ -36,7 +36,7 @@ export default function AdminPublicUploads({ api, storageIds }: {
     setStorageId(previous => storageIds.includes(previous) ? previous : (storageIds[0] ?? ""));
   }, [storageIds.join(",")]);
 
-  const link = (id: string) => location.origin + "/upload/" + id;
+  const link = (id: string) => location.origin + "/u/" + id;
   async function copy(id: string) {
     try { await navigator.clipboard.writeText(link(id)); successToast("Upload link copied"); }
     catch { setError("Clipboard access failed"); }
@@ -141,7 +141,7 @@ export default function AdminPublicUploads({ api, storageIds }: {
               <Button size="sm" variant="secondary" onClick={() => void copy(page.id)}>
                 <Copy size={14}/>Copy link</Button>
               <a className="inline-flex items-center rounded-xl border border-zinc-200 px-3 py-1 text-sm dark:border-white/15"
-                href={"/upload/" + page.id} target="_blank" rel="noopener noreferrer">Open</a>
+                href={"/u/" + page.id} target="_blank" rel="noopener noreferrer">Open</a>
               <Button size="sm" variant="destructive" onClick={() => { setConfirmPage(page); setDeleteError(""); }}>
                 <Trash2 size={14}/>Revoke</Button>
             </div>

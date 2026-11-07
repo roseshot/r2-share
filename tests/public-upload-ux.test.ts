@@ -32,7 +32,15 @@ describe("public upload completion and invalid share navigation", () => {
     expect(page).toContain("Uploading {current} · {progress}%");
   });
 
-  test("uses the branded SharePage unavailable state for unknown IDs", () => {
+  test("uses the share page for unknown IDs and redirects missing uploads", () => {
+    const uploader = source("src/public-upload.tsx");
+    const admin = source("src/admin-public-uploads.tsx");
+    const main = source("src/main.tsx");
+    expect(uploader).toContain('reason instanceof RequestError && reason.status === 404');
+    expect(uploader).toContain('window.location.replace("/")');
+    expect(admin).toContain('location.origin + "/u/" + id');
+    expect(admin).toContain('href={"/u/" + page.id}');
+    expect(main).toContain('if (route === "not-found") window.location.replace("/")');
     const worker = source("worker/index.ts");
     const routes = source("src/routes.ts");
     const client = source("src/main.tsx");

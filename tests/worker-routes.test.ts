@@ -92,11 +92,22 @@ describe("Worker page routes", () => {
     expect(invalidApi.status).toBe(404);
   });
 
-  test("does not serve HTML for unknown nested routes", async () => {
-    const response = await handler.fetch(
-      new Request("https://site.example/unknown/extra"), makeEnv("secret"), {} as ExecutionContext,
+  test("redirects unknown pages to the homepage but preserves API 404 responses", async () => {
+    for (const path of ["/unknown/extra", "/u/not-valid", "/upload/ABCDEFGHIJKLMNOP"]) {
+      const response = await handler.fetch(
+        new Request("https://site.example" + path), makeEnv("secret"), {} as ExecutionContext,
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe("/");
+    }
+    const missingApi = await handler.fetch(
+      new Request("https://site.example/api/unknown"), makeEnv("secret"), {} as ExecutionContext,
     );
-    expect(response.status).toBe(404);
+    expect(missingApi.status).toBe(404);
+    const missingAsset = await handler.fetch(
+      new Request("https://site.example/assets/unknown"), makeEnv("secret"), {} as ExecutionContext,
+    );
+    expect(missingAsset.status).toBe(200);
   });
 });
 

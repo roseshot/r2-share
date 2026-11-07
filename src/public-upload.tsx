@@ -5,7 +5,7 @@ import { ThemeSwitcher } from "./theme";
 import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "./upload-queue";
 import { archiveFolders } from "./folder-zip";
 import { clipboardUploads, pasteIsEditing } from "./paste-upload";
-import { jsonBody, requestJson, sizeText } from "./lib";
+import { RequestError, jsonBody, requestJson, sizeText } from "./lib";
 
 type PageInfo = {
   label: string; active: boolean; expired: boolean; expiresAt: string | null;
@@ -26,14 +26,22 @@ export default function PublicUploadPage() {
   const [error, setError] = useState("");
 
   async function refreshPage() {
-    const info = await requestJson<PageInfo>(endpoint);
-    setPage(info);
-    return info;
+    try {
+      const info = await requestJson<PageInfo>(endpoint);
+      setPage(info);
+      return info;
+    } catch (reason) {
+      if (reason instanceof RequestError && reason.status === 404) window.location.replace("/");
+      throw reason;
+    }
   }
 
   useEffect(() => {
-    void refreshPage().catch(reason => setError(reason instanceof Error ? reason.message : "Link unavailable"))
-      .finally(() => setLoading(false));
+    void refreshPage().catch(reason => {
+      if (!(reason instanceof RequestError && reason.status === 404)) {
+        setError(reason instanceof Error ? reason.message : "Link unavailable");
+      }
+    }).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {

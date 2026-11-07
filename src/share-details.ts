@@ -12,7 +12,7 @@ export function createPlaceholderShare(
   const quarter = Math.ceil(Number(day.slice(5, 7)) / 3);
   const formats = [
     {
-      mime: "application/pdf", minSize: 16 * 1024, maxSize: 8 * 1024 * 1024,
+      mime: "application/pdf", minSize: 80 * 1024, maxSize: 4 * 1024 * 1024,
       names: [
         "Project Proposal.pdf", `Annual Report ${year}.pdf`,
         `Meeting Agenda ${day}.pdf`, "Travel Itinerary.pdf",
@@ -20,7 +20,7 @@ export function createPlaceholderShare(
       ],
     },
     {
-      mime: "image/jpeg", minSize: 150 * 1024, maxSize: 10 * 1024 * 1024,
+      mime: "image/jpeg", minSize: 300 * 1024, maxSize: 5 * 1024 * 1024,
       names: [
         `IMG_${day.replaceAll("-", "")}_${time}.jpg`, "Beach Sunset.jpg",
         "Family Photo.jpg", "Mountain View.jpg",
@@ -28,7 +28,7 @@ export function createPlaceholderShare(
       ],
     },
     {
-      mime: "application/zip", minSize: 1024 * 1024, maxSize: 85 * 1024 * 1024,
+      mime: "application/zip", minSize: 2 * 1024 * 1024, maxSize: 40 * 1024 * 1024,
       names: [
         `Website Backup ${day}.zip`, `Family Photos ${year}.zip`,
         "Project Files.zip", "Design Assets.zip",
@@ -36,7 +36,7 @@ export function createPlaceholderShare(
       ],
     },
     {
-      mime: "text/plain", minSize: 1024, maxSize: 64 * 1024,
+      mime: "text/plain", minSize: 200, maxSize: 12 * 1024,
       names: [
         `Meeting Notes ${day}.txt`, "Shopping List.txt",
         "Project Ideas.txt", "README.txt", "To Do List.txt",
@@ -44,7 +44,7 @@ export function createPlaceholderShare(
       ],
     },
     {
-      mime: "video/mp4", minSize: 6 * 1024 * 1024, maxSize: 88 * 1024 * 1024,
+      mime: "video/mp4", minSize: 8 * 1024 * 1024, maxSize: 88 * 1024 * 1024,
       names: [
         `Screen Recording ${day}.mp4`, "Birthday Party.mp4",
         `Weekend Trip ${year}.mp4`, "Product Demo.mp4",
@@ -53,7 +53,7 @@ export function createPlaceholderShare(
     },
     {
       mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      minSize: 12 * 1024, maxSize: 4 * 1024 * 1024,
+      minSize: 16 * 1024, maxSize: 800 * 1024,
       names: [
         `Monthly Budget ${month}.xlsx`, `Expense Report ${year}.xlsx`,
         "Inventory List.xlsx", `Sales Summary Q${quarter} ${year}.xlsx`,

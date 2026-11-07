@@ -34,13 +34,17 @@ function App() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (route === "not-found") window.location.replace("/");
+  }, [route]);
+
   return (
     <Suspense fallback={<div className="grid min-h-screen place-items-center text-sm text-zinc-500">Loading…</div>}>
       {route === "home" ? <Home /> : route === "share" ? <SharePage /> :
         route === "public-upload" ? <PublicUploadPage /> :
         route === "admin" ? <Admin /> : route === "checking" ?
           <div className="grid min-h-screen place-items-center text-sm text-zinc-500">Loading…</div> :
-          <div className="grid min-h-screen place-items-center text-sm text-zinc-500">404 · Page not found</div>}
+          null}
     </Suspense>
   );
 }
