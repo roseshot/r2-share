@@ -92,9 +92,9 @@ describe("Worker page routes", () => {
     expect(invalidApi.status).toBe(404);
   });
 
-  test("keeps an unavailable share page for IDs outside the 15-20 character range", async () => {
+  test("keeps an unavailable share page for IDs outside the 8-12 character range", async () => {
     const env = makeEnv("secret");
-    for (const length of [1, 14, 21, 40]) {
+    for (const length of [1, 7, 13, 16, 21, 40]) {
       const shareId = "A".repeat(length);
       const page = await handler.fetch(
         new Request("https://site.example/" + shareId), env, {} as ExecutionContext,

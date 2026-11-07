@@ -68,7 +68,7 @@ export const expirationDate = (seconds: number): string | null =>
 export const shareExpiry = (record: FileRecord): string | null => record.shareExpiresAt;
 export const shareExpired = (record: FileRecord): boolean =>
   expired(record) || (shareExpiry(record) !== null && Date.parse(shareExpiry(record)!) <= Date.now());
-export const validId = (id: string): boolean => /^[A-Za-z0-9_-]{16}$/.test(id);
+export const validId = (id: string): boolean => /^[A-Za-z0-9_-]{8,10}$/.test(id);
 export const validStoredId = validId;
 export const dataKey = (id: string): string => "files/" + id;
 export const expired = (f: FileRecord): boolean =>

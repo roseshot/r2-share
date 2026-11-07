@@ -84,7 +84,7 @@ async function verifySharedAccess(c: import("hono").Context<Environment>, share:
 
 app.get("/api/files/:id", async c => {
   const id = c.req.param("id");
-  if (!/^[A-Za-z0-9_-]{15,20}$/.test(id)) return jsonError("File not found", 404);
+  if (!/^[A-Za-z0-9_-]{8,12}$/.test(id)) return jsonError("File not found", 404);
   const result = validId(id) ? await resolveSharedFile(c.env, id) : null;
   if (!result) {
     if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
@@ -504,7 +504,7 @@ app.post("/:entry/api/uploads", async c => {
   }
   const code = mode === "protected" ? (body.code?.trim() || randomCode()) : undefined;
   if (code && code.length < 4) return jsonError("Access code must contain at least 4 characters");
-  // Keep share links distinct from the private admin entry if it is 16 characters.
+  // Keep new file/share links distinct from the private admin entry.
   let id = randomId();
   while (id === c.env.ADMIN_PATH || !await reserveUpload(c.env, id, storageId)) id = randomId();
   const revision = randomRevision();

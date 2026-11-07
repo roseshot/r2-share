@@ -9,7 +9,7 @@ import { dataKey, type Bindings, type FileRecord } from "../worker/model";
 import { createTestDatabase } from "./d1-helper";
 
 const origin = "https://share.example.test";
-const fileId = "ABCDEF0123456789";
+const fileId = "ABCdef123";
 const accessKey = b64(new Uint8Array(32));
 
 function fixture() {
@@ -78,7 +78,7 @@ describe("independent multiple share links", () => {
       originalModifiedAt: "2026-06-03T12:00:00.000Z",
     });
     const real = await (await app.request("/api/files/" + fileId)).json() as Record<string, unknown>;
-    const unknown = "Fq8mH2_nP4xY7zQc";
+    const unknown = "Fq8mH2_nP4";
     const first = await app.request("/api/files/" + unknown);
     expect(first.status).toBe(200);
     expect(first.headers.get("Cache-Control")).toBe("no-store");
@@ -96,13 +96,13 @@ describe("independent multiple share links", () => {
       method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify({ code: "wrong" }),
     })).status).toBe(404);
-    for (const length of [15, 16, 17, 18, 19, 20]) {
+    for (const length of [8, 9, 10, 11, 12]) {
       const missingId = "A".repeat(length);
       const response = await app.request("/api/files/" + missingId);
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ id: missingId, mode: "public" });
     }
-    for (const length of [1, 14, 21, 513]) {
+    for (const length of [1, 7, 13, 16, 21, 513]) {
       const missingId = "A".repeat(length);
       const response = await app.request("/api/files/" + missingId);
       expect(response.status).toBe(404);

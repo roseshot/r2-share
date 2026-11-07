@@ -11,7 +11,7 @@ import { createTestDatabase } from "./d1-helper";
 
 const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const origin = "https://files.example.test";
-const id = "A_-a".repeat(4);
+const id = "A_-a".repeat(2);
 
 async function saveRecord(env: Bindings, record: FileRecord): Promise<void> {
   await saveFileRecord(env, record);

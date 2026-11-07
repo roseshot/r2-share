@@ -89,10 +89,12 @@ describe("public upload pages", () => {
       body: JSON.stringify({ label: "bad", storageId: storage.id, expiresIn: 3600 }),
     })).status).toBe(401);
     const id = await app.create();
+    expect(id).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
     const list = await app.admin("/public-uploads");
     expect((await list.json() as { pages: { id: string }[] }).pages[0].id).toBe(id);
     const html = await app.request("/u/" + id);
     expect(html.status).toBe(200);
+    expect((await app.request("/api/public-uploads/ABCDEFGHIJKLMNOP")).status).toBe(404);
     for (const path of ["/u/not-valid", "/u/ABCDEFGHIJKLMNOP", "/upload/" + id]) {
       const unknown = await app.request(path);
       expect(unknown.status).toBe(302);

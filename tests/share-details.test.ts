@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { sizeText } from "../src/lib";
 import { createPlaceholderShare, generatePlaceholderShare, placeholderLease } from "../worker/placeholder-share";
 
-const id = "Kq8mH2_nP4xY7zQb";
+const id = "Kq8mH2_nP4";
 const secret = "test-session-secret-for-placeholder-metadata";
 
 describe("server-generated missing share metadata", () => {

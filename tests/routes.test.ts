@@ -13,8 +13,8 @@ describe("public and private page routing", () => {
     }
   });
 
-  test("uses the root-level 16-character share route", () => {
-    const id = "Kq8mH2_nP4xY7zQb";
+  test("uses root-level share routes for generated IDs", () => {
+    const id = "Kq8mH2_n";
     expect(routeForPath("/" + id)).toBe("share");
     expect(routeForPath("/" + id, true)).toBe("admin");
     expect(routeForPath("/f/" + id)).toBe("not-found");
@@ -26,19 +26,22 @@ describe("public and private page routing", () => {
   test("shows a branded share error for malformed or unknown single-segment IDs", () => {
     expect(routeForPath("/not-a-valid-id")).toBe("share");
     expect(routeForPath("/unknown")).toBe("share");
-    expect(routeForPath("/abcdefghijklmnop")).toBe("share");
+    expect(routeForPath("/abcdefghijklmnop")).toBe("share"); // Unavailable legacy link.
     expect(routeForPath("/invalid/extra")).toBe("not-found");
   });
 
   test("routes a public uploader separately from admin and download links", () => {
-    expect(routeForPath("/u/ABCDEFGHIJKLMNOP")).toBe("public-upload");
+    expect(routeForPath("/u/AbC123xy")).toBe("public-upload");
+    expect(routeForPath("/u/ABCdef123")).toBe("public-upload");
+    expect(routeForPath("/u/ABCdef1234")).toBe("public-upload");
+    expect(routeForPath("/u/ABCDEFGHIJKLMNOP")).toBe("not-found");
     expect(routeForPath("/u/not-an-id")).toBe("not-found");
     expect(routeForPath("/u/ABCDEFGHIJKLMNOP/files")).toBe("not-found");
     expect(routeForPath("/upload/ABCDEFGHIJKLMNOP")).toBe("not-found");
   });
 
   test("accepts only same-origin root-level share links or bare IDs", () => {
-    const id = "Kq8mH2_nP4xY7zQb";
+    const id = "Kq8mH2_n";
     const origin = "https://files.example.com";
     expect(resolveSharePath(id, origin)).toBe("/" + id);
     expect(resolveSharePath(origin + "/" + id, origin)).toBe("/" + id);
@@ -48,6 +51,15 @@ describe("public and private page routing", () => {
     expect(resolveSharePath(origin + "/f/" + id, origin)).toBeNull();
     expect(resolveSharePath("/admin", origin)).toBeNull();
     expect(resolveSharePath("", origin)).toBeNull();
-    expect(resolveSharePath("a".repeat(32), origin)).toBeNull();
+    for (const length of [8, 9, 10, 11, 12]) {
+      const missingId = "A".repeat(length);
+      expect(resolveSharePath(missingId, origin)).toBe("/" + missingId);
+      expect(resolveSharePath(origin + "/" + missingId, origin)).toBe("/" + missingId);
+    }
+    for (const length of [1, 7, 13, 16, 32]) {
+      const invalid = "A".repeat(length);
+      expect(resolveSharePath(invalid, origin)).toBeNull();
+      expect(resolveSharePath(origin + "/" + invalid, origin)).toBeNull();
+    }
   });
 });

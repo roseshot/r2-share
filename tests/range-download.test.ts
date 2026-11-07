@@ -10,7 +10,7 @@ import { createShare, initialShare } from "../worker/shares";
 import { dataKey, type Bindings, type FileRecord } from "../worker/model";
 
 const origin = "https://share.example.test";
-const fileId = "ABCDEF0123456789";
+const fileId = "ABCdef1234";
 
 function fixture(protectedLink = false) {
   const env = {

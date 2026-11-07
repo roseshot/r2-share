@@ -14,7 +14,11 @@ export function unb64(value: string): Uint8Array<ArrayBuffer> {
   for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
   return bytes;
 }
-export const randomId = (): string => b64(crypto.getRandomValues(new Uint8Array(12)));
+// Each generated ID has 8, 9, or 10 Base64URL characters (48-60 random bits).
+export function randomId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(9));
+  return b64(bytes.subarray(1)).slice(0, 8 + bytes[0] % 3);
+}
 export const randomRevision = (): string => b64(crypto.getRandomValues(new Uint8Array(16)));
 export function randomCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
