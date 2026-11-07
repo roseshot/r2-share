@@ -84,7 +84,7 @@ async function verifySharedAccess(c: import("hono").Context<Environment>, share:
 
 app.get("/api/files/:id", async c => {
   const id = c.req.param("id");
-  if (!/^[A-Za-z0-9_-]{1,512}$/.test(id)) return jsonError("File not found", 404);
+  if (!/^[A-Za-z0-9_-]{15,20}$/.test(id)) return jsonError("File not found", 404);
   const result = validId(id) ? await resolveSharedFile(c.env, id) : null;
   if (!result) {
     if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);

@@ -96,11 +96,19 @@ describe("independent multiple share links", () => {
       method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify({ code: "wrong" }),
     })).status).toBe(404);
-    expect(await (await app.request("/api/files/shortname")).json()).toMatchObject({
-      id: "shortname", mode: "public",
-    });
+    for (const length of [15, 16, 17, 18, 19, 20]) {
+      const missingId = "A".repeat(length);
+      const response = await app.request("/api/files/" + missingId);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ id: missingId, mode: "public" });
+    }
+    for (const length of [1, 14, 21, 513]) {
+      const missingId = "A".repeat(length);
+      const response = await app.request("/api/files/" + missingId);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "File not found" });
+    }
     expect((await app.request("/api/files/bad!")).status).toBe(404);
-    expect((await app.request("/api/files/" + "A".repeat(513))).status).toBe(404);
     expect(await (await app.request("/api/files/" + fileId)).json()).toEqual(real);
   });
 

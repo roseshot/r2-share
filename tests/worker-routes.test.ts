@@ -92,6 +92,23 @@ describe("Worker page routes", () => {
     expect(invalidApi.status).toBe(404);
   });
 
+  test("keeps an unavailable share page for IDs outside the 15-20 character range", async () => {
+    const env = makeEnv("secret");
+    for (const length of [1, 14, 21, 40]) {
+      const shareId = "A".repeat(length);
+      const page = await handler.fetch(
+        new Request("https://site.example/" + shareId), env, {} as ExecutionContext,
+      );
+      expect(page.status).toBe(200);
+      expect(await page.text()).toContain("<!doctype html>");
+      const metadata = await handler.fetch(
+        new Request("https://site.example/api/files/" + shareId),
+        env, {} as ExecutionContext,
+      );
+      expect(metadata.status).toBe(404);
+    }
+  });
+
   test("redirects unknown pages to the homepage but preserves API 404 responses", async () => {
     for (const path of ["/unknown/extra", "/u/not-valid", "/upload/ABCDEFGHIJKLMNOP"]) {
       const response = await handler.fetch(
