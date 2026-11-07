@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Archive, ArrowDownToLine, CalendarClock, FileAudio, FileImage, FileText, FileType, FileVideo, HardDrive, Info, KeyRound } from "lucide-react";
+import { Archive, ArrowDownToLine, CalendarClock, FileAudio, FileImage, FileText, FileType, FileVideo, HardDrive, Info, KeyRound, Link2Off } from "lucide-react";
 import { Popover } from "@base-ui/react/popover";
 import { Button, Card, Input } from "./ui";
 import { jsonBody, requestJson, sizeText, type Share } from "./lib";
