@@ -22,8 +22,11 @@ export function createTestDatabase(): D1Database {
 
   return {
     prepare,
-    async batch(statements: { execute(): unknown }[]) {
-      return database.transaction(() => statements.map(statement => statement.execute()))();
+    async batch(statements: { execute(): { changes: number } }[]) {
+      const results = database.transaction(() =>
+        statements.map(statement => statement.execute()))();
+      // D1 batch returns D1Result.meta.changes; bun:sqlite returns changes directly.
+      return results.map(result => ({ ...result, meta: { changes: result.changes } }));
     },
   } as unknown as D1Database;
 }

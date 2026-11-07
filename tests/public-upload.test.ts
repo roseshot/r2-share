@@ -94,7 +94,9 @@ describe("public upload pages", () => {
     const html = await app.request("/upload/" + id);
     expect(html.status).toBe(200);
     expect((await app.request("/upload/not-valid")).status).toBe(404);
-    expect((await app.request("/hidden-admin/api/public-uploads/" + id, { method: "DELETE" })).status).toBe(401);
+    expect((await app.request("/hidden-admin/api/public-uploads/" + id, {
+      method: "DELETE", headers: { Origin: origin },
+    })).status).toBe(401);
     expect((await app.admin("/public-uploads/" + id, "DELETE")).status).toBe(200);
     expect((await app.request("/api/public-uploads/" + id)).status).toBe(404);
     expect((await app.initiate(id)).status).toBe(404);
