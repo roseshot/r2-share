@@ -75,8 +75,27 @@ describe("Worker page routes", () => {
     expect(await response.text()).toContain("<!doctype html>");
   });
 
-  test("does not serve the admin page for another path", async () => {
-    const response = await handler.fetch(new Request("https://site.example/another"), makeEnv("secret"), {} as ExecutionContext);
+  test("renders the normal HTML shell for unknown or malformed share IDs", async () => {
+    for (const entry of ["another", "Kq8mH2_nP4xY7zQb", "unknown_share"]) {
+      const response = await handler.fetch(
+        new Request("https://site.example/" + entry), makeEnv("secret"), {} as ExecutionContext,
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toContain("text/html");
+      expect(await response.text()).toContain("<!doctype html>");
+    }
+    const invalidApi = await handler.fetch(
+      new Request("https://site.example/api/files/another"),
+      makeEnv("secret"),
+      {} as ExecutionContext,
+    );
+    expect(invalidApi.status).toBe(404);
+  });
+
+  test("does not serve HTML for unknown nested routes", async () => {
+    const response = await handler.fetch(
+      new Request("https://site.example/unknown/extra"), makeEnv("secret"), {} as ExecutionContext,
+    );
     expect(response.status).toBe(404);
   });
 });

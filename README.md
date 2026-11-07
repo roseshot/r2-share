@@ -149,6 +149,10 @@ the selected private B2/R2 storage and appear in the normal administrator file
 list. The public uploader does **not** receive file download links or access codes.
 Each uploaded file gets a **protected** initial share with a random access code
 that only an administrator can reveal, so uploading does not make it public.
+Once the entire selected batch uploads successfully, the public page switches to a
+**single "Upload successful" confirmation**. The upload form, page quota details
+and any administrator-related text are hidden. Partial failures keep their retry
+options and error feedback.
 
 D1 `public_upload_pages` tracks configured expiry and completed-upload counts.
 `upload_sessions.public_page_id` tracks in-flight reservations; conditional D1
@@ -163,6 +167,12 @@ are unchanged. Treat public upload URLs as sensitive: anyone who possesses an
 active link can submit files, subject to the configured limits and rate limiter.
 
 ## Managing files and share links
+
+Unknown, expired, or malformed single-segment Share IDs render the regular
+TuckBox share page with a **Link unavailable** message, rather than a raw
+plain-text 404. The underlying metadata and download APIs still reject
+invalid or unauthorized IDs. The actual administrator path is identified
+using the authenticated session probe.
 
 After upload, a file receives one initial share link. Its link ID matches the file ID; further links get independent random 16-character IDs.
 

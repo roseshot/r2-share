@@ -10,15 +10,15 @@ const SharePage = lazy(() => import("./share"));
 const PublicUploadPage = lazy(() => import("./public-upload"));
 
 const initialRoute = routeForPath(location.pathname);
-const needsAdminCheck = initialRoute === "share";
+const needsAdminCheck = initialRoute === "share"; // Probe every single-segment path: admin entries can have any length.
 
 function App() {
   const [route, setRoute] = useState<Route | "checking">(needsAdminCheck ? "checking" : initialRoute);
 
   useEffect(() => {
     if (!needsAdminCheck) return;
-    // An admin entry may also be exactly 16 characters. Distinguish it by
-    // probing the admin-only session endpoint, without exposing ADMIN_PATH.
+    // Distinguish the private admin path from an invalid or unknown share ID
+    // without exposing ADMIN_PATH. Both render the same HTML shell.
     const controller = new AbortController();
     fetch(location.pathname + "/api/session", {
       credentials: "same-origin",

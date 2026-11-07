@@ -741,14 +741,10 @@ app.get("/tuckbox-mark.svg", c => c.env.ASSETS.fetch(c.req.raw));
 
 app.get("/:entry", async c => {
   const entry = c.req.param("entry");
-  // The private admin entry always takes precedence over a sharing ID.
-  if (validEntry(entry, c.env)) return serveHtml(c.req.raw, c.env);
-  if (!validId(entry)) return c.notFound();
-  const match = await resolveSharedFile(c.env, entry);
-  if (!match) {
-    clearShareAuthorization(c, entry);
-    return c.text("Not found", 404);
-  }
+  // Render the branded page even for an unknown or malformed share ID.
+  // The client fetches metadata via /api/files/:id and displays "Link unavailable".
+  // This HTML response grants no file access; download routes still enforce authorization.
+  if (!/^[a-zA-Z0-9_-]+$/.test(entry)) return c.notFound();
   return serveHtml(c.req.raw, c.env);
 });
 app.get("/assets/*", c => c.env.ASSETS.fetch(c.req.raw));

@@ -6,10 +6,11 @@ describe("public and private page routing", () => {
     expect(routeForPath("/")).toBe("home");
   });
 
-  test("accepts admin path segments of any nonzero length", () => {
-    expect(routeForPath("/a")).toBe("admin");
-    expect(routeForPath("/" + "a".repeat(512))).toBe("admin");
-    expect(routeForPath("/a-b_1")).toBe("admin");
+  test("probes whether a single-segment URL is the private admin path", () => {
+    for (const path of ["/a", "/" + "a".repeat(512), "/a-b_1"]) {
+      expect(routeForPath(path)).toBe("share");
+      expect(routeForPath(path, true)).toBe("admin");
+    }
   });
 
   test("uses the root-level 16-character share route", () => {
@@ -18,8 +19,15 @@ describe("public and private page routing", () => {
     expect(routeForPath("/" + id, true)).toBe("admin");
     expect(routeForPath("/f/" + id)).toBe("not-found");
     expect(routeForPath("/f/no-file")).toBe("not-found");
-    expect(routeForPath("/" + "a".repeat(32))).toBe("admin");
+    expect(routeForPath("/" + "a".repeat(32))).toBe("share");
     expect(routeForPath("/abc/api/login")).toBe("not-found");
+  });
+
+  test("shows a branded share error for malformed or unknown single-segment IDs", () => {
+    expect(routeForPath("/not-a-valid-id")).toBe("share");
+    expect(routeForPath("/unknown")).toBe("share");
+    expect(routeForPath("/abcdefghijklmnop")).toBe("share");
+    expect(routeForPath("/invalid/extra")).toBe("not-found");
   });
 
   test("routes a public uploader separately from admin and download links", () => {

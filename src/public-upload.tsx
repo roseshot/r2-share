@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
-import { FileUp, FolderOpen, LoaderCircle, X } from "lucide-react";
+import { CircleCheckBig, FileUp, FolderOpen, LoaderCircle, X } from "lucide-react";
 import { Button, Card } from "./ui";
 import { ThemeSwitcher } from "./theme";
 import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "./upload-queue";
@@ -136,6 +136,8 @@ export default function PublicUploadPage() {
     }
   }
 
+  const completed = !loading && uploaded.length > 0 && selected.length === 0 && !uploading && !error;
+
   return <main className="min-h-screen px-4 py-8 sm:px-8">
     <header className="mx-auto mb-10 flex max-w-2xl items-center gap-3">
       <img src="/tuckbox-mark.svg" width="40" height="40" alt="" aria-hidden="true" />
@@ -143,6 +145,10 @@ export default function PublicUploadPage() {
       <div className="ml-auto"><ThemeSwitcher /></div>
     </header>
     <Card className="mx-auto max-w-2xl p-6 sm:p-9">
+      {completed ? <div role="status" aria-label="Upload complete" className="py-10 text-center">
+        <CircleCheckBig size={52} className="mx-auto mb-5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+        <h1 className="text-2xl font-semibold">Upload successful</h1>
+      </div> : <>
       <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Public upload</p>
       <h1 className="mt-3 break-words text-3xl font-semibold">{page?.label || "Upload files"}</h1>
       {loading ? <p role="status" className="mt-6 text-sm text-zinc-500">Loading upload link…</p> : <>
@@ -157,7 +163,7 @@ export default function PublicUploadPage() {
             page ? "This upload link has reached its upload limit." : "Upload link unavailable."}
         </p> : <>
           <p className="mt-5 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-            Upload files without signing in. Files are delivered privately to the administrator.
+            Upload files without signing in.
             Each file can be up to 90 MiB. Folders are uploaded as ZIP archives.
           </p>
           <form onSubmit={event => { void upload(event); }} className="mt-6 space-y-4">
@@ -208,9 +214,9 @@ export default function PublicUploadPage() {
         </>}
         {uploaded.length > 0 && <section role="status" className="mt-6 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-sm">
           <p className="font-semibold">{uploaded.length} file(s) uploaded successfully</p>
-          <p className="mt-1 text-zinc-500">Files are available to the administrator.</p>
         </section>}
         {error && <p role="alert" className="mt-4 break-words text-sm text-red-700 dark:text-red-300">{error}</p>}
+      </>}
       </>}
     </Card>
   </main>;
