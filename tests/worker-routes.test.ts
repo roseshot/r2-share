@@ -110,7 +110,7 @@ describe("Worker page routes", () => {
   });
 
   test("redirects unknown pages to the homepage but preserves API 404 responses", async () => {
-    for (const path of ["/unknown/extra", "/u/not-valid", "/upload/ABCDEFGHIJKLMNOP"]) {
+    for (const path of ["/unknown/extra", "/u/not-valid-invalid", "/upload/ABCDEFGHIJKLMNOP"]) {
       const response = await handler.fetch(
         new Request("https://site.example" + path), makeEnv("secret"), {} as ExecutionContext,
       );

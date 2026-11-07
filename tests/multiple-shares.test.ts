@@ -187,7 +187,7 @@ describe("independent multiple share links", () => {
     const base = await app.createFile();
     for (let n = 0; n < 26; n++) {
       await saveRecord(app.env, {
-        ...base, id: String(n).padStart(16, "0"),
+        ...base, id: String(n).padStart(10, "0"),
         filename: "needle-" + n + ".txt",
         createdAt: new Date(Date.now() - n * 1000).toISOString(),
       });

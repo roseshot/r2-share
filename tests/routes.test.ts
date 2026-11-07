@@ -35,7 +35,7 @@ describe("public and private page routing", () => {
     expect(routeForPath("/u/ABCdef123")).toBe("public-upload");
     expect(routeForPath("/u/ABCdef1234")).toBe("public-upload");
     expect(routeForPath("/u/ABCDEFGHIJKLMNOP")).toBe("not-found");
-    expect(routeForPath("/u/not-an-id")).toBe("not-found");
+    expect(routeForPath("/u/not-an-id-invalid")).toBe("not-found");
     expect(routeForPath("/u/ABCDEFGHIJKLMNOP/files")).toBe("not-found");
     expect(routeForPath("/upload/ABCDEFGHIJKLMNOP")).toBe("not-found");
   });
