@@ -203,6 +203,8 @@ func TestConfiguredHostWithCustomPort(t *testing.T) {
 	node.domain = "download.example.com:8443"
 	claims.Audience = node.domain
 	req := httptest.NewRequest("GET", "https://download.example.com:8443/v1/download?token="+grant(claims), nil)
+	// The TLS SNI contains the hostname, not the port included in HTTP Host.
+	req.TLS.ServerName = "download.example.com"
 	rec := httptest.NewRecorder()
 	node.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || rec.Body.String() != "sample" {
