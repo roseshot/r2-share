@@ -25,6 +25,7 @@ type claims struct {
 	Scope     string `json:"scope"`
 	Key       string `json:"key"`
 	StorageID string `json:"storageId"`
+	Source    string `json:"source"`
 	Filename  string `json:"filename"`
 	MIME      string `json:"mime"`
 	Size      int64  `json:"size"`
@@ -36,6 +37,7 @@ func checkClaims(c claims, audience string, now time.Time) error {
 	if c.Scope != tokenScope || c.Audience != audience || c.Exp <= now.UnixMilli() ||
 		c.Exp > now.Add(tokenTTL).UnixMilli() || c.Size < 1 || c.Size > 9007199254740991 ||
 		!validObject.MatchString(c.Key) || !validStorage.MatchString(c.StorageID) ||
+		len(c.Source) < 1 || len(c.Source) > 2600 ||
 		c.Filename == "" || len(c.Filename) > 1024 || !utf8.ValidString(c.Filename) ||
 		strings.ContainsAny(c.Filename, "\r\n\x00") {
 		return errors.New("invalid or expired download grant")

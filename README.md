@@ -15,7 +15,8 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 - Apply database changes through versioned SQL migrations.
 
 The Worker handles authorization and normally streams files from private S3-compatible buckets.
-Optional Go nodes can offload only authenticated GET downloads; storage credentials remain server-side.
+Optional Go nodes can offload only authenticated GET downloads without holding any
+bucket credentials. The Worker alone presigns private object requests.
 
 ## How it works
 
@@ -425,10 +426,13 @@ DOWNLOAD_NODES=https://dl1.example.com,https://dl2.example.com
 ```
 
 Both values are **optional**, so existing deployments work without changes.
-After the Worker validates a share or admin session, GET downloads receive a
-**307 redirect with an HMAC-signed, at-most-90-second grant** for the selected
-Go node. The node privately fetches only the authorized object by storage ID,
-validates S3 response length/range, and streams it to the browser. File IDs are
+After the Worker validates a share or admin session, it presigns short-lived S3
+GET/HEAD requests using credentials stored only in the Worker. GET downloads
+receive a **307 redirect with an HMAC-signed, at-most-90-second grant** containing
+AES-256-GCM-encrypted presigned URLs. The browser cannot inspect the bucket URLs;
+the node decrypts and validates them, checks S3 response length/range, and
+streams the authorized object to the browser. Nodes need only the shared
+`DOWNLOAD_NODE_SECRET`; do not configure bucket credentials on them. File IDs are
 hashed to distribute downloads consistently across up to 16 nodes; range
 resume for a file therefore selects the same node. Downloads support 206 and
 416; HEAD preflight and all previews remain directly on the Worker.

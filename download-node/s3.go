@@ -1,108 +1,103 @@
 package main
 
 import (
-	"crypto/hmac"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
-type storageConfig struct {
-	ID              string `json:"id"`
-	Backend         string `json:"backend"`
-	Bucket          string `json:"bucket"`
-	Region          string `json:"region"`
-	AccountID       string `json:"accountId,omitempty"`
-	AccessKeyID     string `json:"accessKeyId,omitempty"`
-	SecretAccessKey string `json:"secretAccessKey,omitempty"`
-	KeyID           string `json:"keyId,omitempty"`
-	ApplicationKey  string `json:"applicationKey,omitempty"`
+type signedSource struct {
+	Get  string `json:"get"`
+	Head string `json:"head"`
 }
 
 var (
-	validBucket  = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
-	validAccount = regexp.MustCompile(`^[a-fA-F0-9]{32}$`)
-	validRegion  = regexp.MustCompile(`^[a-z0-9-]+$`)
+	validBucket = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+	validB2Host = regexp.MustCompile(`^s3\.[a-z]{2}-[a-z0-9-]+-[0-9]{3}\.backblazeb2\.com$`)
+	validR2Host = regexp.MustCompile(`^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$`)
+	validS3Host = regexp.MustCompile(`^s3\.[a-z0-9-]+\.amazonaws\.com$`)
+	validSignature = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	validCredential = regexp.MustCompile(`^[^/]+/[0-9]{8}/[a-z0-9-]+/s3/aws4_request$`)
 )
 
-func (s storageConfig) endpoint() (host, region, accessKey, secretKey string, err error) {
-	if !validStorage.MatchString(s.ID) || !validBucket.MatchString(s.Bucket) ||
-		strings.Contains(s.Bucket, "..") || strings.Contains(s.Bucket, ".-") ||
-		strings.Contains(s.Bucket, "-.") || (len(s.Bucket) >= 6 && strings.HasPrefix(s.Bucket, "s3.")) {
-		return "", "", "", "", errors.New("invalid storage ID or bucket")
+func decryptSource(raw string, secret []byte) (signedSource, error) {
+	var source signedSource
+	parts := strings.Split(raw, ".")
+	if len(parts) != 2 || len(raw) > 2600 {
+		return source, errors.New("invalid encrypted source")
 	}
-	switch s.Backend {
-	case "b2":
-		if !regexp.MustCompile(`^[a-z]{2}-[a-z0-9-]+-[0-9]{3}$`).MatchString(s.Region) {
-			return "", "", "", "", errors.New("invalid B2 region")
-		}
-		host, region, accessKey, secretKey = "s3."+s.Region+".backblazeb2.com", s.Region, s.KeyID, s.ApplicationKey
-	case "r2":
-		if !validAccount.MatchString(s.AccountID) {
-			return "", "", "", "", errors.New("invalid R2 account ID")
-		}
-		host, region, accessKey, secretKey = strings.ToLower(s.AccountID)+".r2.cloudflarestorage.com", "auto", s.AccessKeyID, s.SecretAccessKey
-	case "s3":
-		if !validRegion.MatchString(s.Region) {
-			return "", "", "", "", errors.New("invalid S3 region")
-		}
-		host, region, accessKey, secretKey = "s3."+s.Region+".amazonaws.com", s.Region, s.AccessKeyID, s.SecretAccessKey
-	default:
-		return "", "", "", "", errors.New("unsupported storage backend")
+	nonce, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil || len(nonce) != 12 {
+		return source, errors.New("invalid source nonce")
 	}
-	if len(accessKey) < 4 || len(secretKey) < 4 {
-		return "", "", "", "", errors.New("storage credentials are missing")
+	sealed, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || len(sealed) < 16 || len(sealed) > 1900 {
+		return source, errors.New("invalid source ciphertext")
 	}
-	return host, region, accessKey, secretKey, nil
+	key := sha256.Sum256(append([]byte("tuckbox-download-source/v1:"), secret...))
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return source, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return source, err
+	}
+	plaintext, err := aead.Open(nil, nonce, sealed, nil)
+	if err != nil || json.Unmarshal(plaintext, &source) != nil || source.Get == "" || source.Head == "" {
+		return signedSource{}, errors.New("invalid encrypted source")
+	}
+	return source, nil
 }
 
-func signHMAC(key []byte, msg string) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write([]byte(msg))
-	return h.Sum(nil)
-}
-
-func signS3Request(method string, s storageConfig, objectKey, byteRange string, now time.Time) (*http.Request, error) {
-	host, region, accessKey, secretKey, err := s.endpoint()
-	if err != nil {
-		return nil, err
+func validateSignedURL(raw, objectKey string, grantExpiry int64, now time.Time) (*url.URL, error) {
+	if len(raw) > 950 {
+		return nil, errors.New("invalid source URL length")
 	}
-	if !validObject.MatchString(objectKey) {
-		return nil, errors.New("invalid object key")
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" ||
+		u.Fragment != "" || u.Opaque != "" || u.Hostname() != u.Host {
+		return nil, errors.New("invalid source URL")
 	}
-	location := &url.URL{Scheme: "https", Host: host, Path: "/" + s.Bucket + "/" + objectKey}
-	req, err := http.NewRequest(method, location.String(), nil)
-	if err != nil {
-		return nil, err
+	host := u.Hostname()
+	if !validB2Host.MatchString(host) && !validR2Host.MatchString(host) && !validS3Host.MatchString(host) {
+		return nil, errors.New("untrusted storage hostname")
 	}
-	stamp, date := now.UTC().Format("20060102T150405Z"), now.UTC().Format("20060102")
-	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("X-Amz-Date", stamp)
-	req.Header.Set("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
-	headers := "host:" + host + "\n"
-	signed := "host;"
-	if byteRange != "" {
-		req.Header.Set("Range", byteRange)
-		headers += "range:" + byteRange + "\n"
-		signed += "range;"
+	prefix, suffix, ok := strings.Cut(strings.TrimPrefix(u.EscapedPath(), "/"), "/")
+	if !ok || !validBucket.MatchString(prefix) || strings.Contains(prefix, "..") ||
+		strings.Contains(prefix, ".-") || strings.Contains(prefix, "-.") || suffix != objectKey {
+		return nil, errors.New("invalid storage object path")
 	}
-	headers += "x-amz-content-sha256:UNSIGNED-PAYLOAD\n" + "x-amz-date:" + stamp + "\n"
-	signed += "x-amz-content-sha256;x-amz-date"
-	canonical := method + "\n" + location.EscapedPath() + "\n\n" + headers + "\n" + signed + "\nUNSIGNED-PAYLOAD"
-	hash := sha256.Sum256([]byte(canonical))
-	scope := date + "/" + region + "/s3/aws4_request"
-	message := "AWS4-HMAC-SHA256\n" + stamp + "\n" + scope + "\n" + hex.EncodeToString(hash[:])
-	signingKey := signHMAC([]byte("AWS4"+secretKey), date)
-	signingKey = signHMAC(signingKey, region)
-	signingKey = signHMAC(signingKey, "s3")
-	signingKey = signHMAC(signingKey, "aws4_request")
-	signature := hex.EncodeToString(signHMAC(signingKey, message))
-	req.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s", accessKey, scope, signed, signature))
-	return req, nil
+	q := u.Query()
+	required := []string{"X-Amz-Algorithm", "X-Amz-Date", "X-Amz-Expires", "X-Amz-Credential", "X-Amz-SignedHeaders", "X-Amz-Signature"}
+	for _, name := range required {
+		if len(q[name]) != 1 {
+			return nil, errors.New("invalid source signature")
+		}
+	}
+	if q.Get("X-Amz-Algorithm") != "AWS4-HMAC-SHA256" ||
+		q.Get("X-Amz-SignedHeaders") != "host" ||
+		!validSignature.MatchString(q.Get("X-Amz-Signature")) ||
+		!validCredential.MatchString(q.Get("X-Amz-Credential")) {
+		return nil, errors.New("invalid source signature")
+	}
+	seconds, err := strconv.Atoi(q.Get("X-Amz-Expires"))
+	if err != nil || seconds < 1 || seconds > 90 {
+		return nil, errors.New("invalid source expiry")
+	}
+	signedAt, err := time.Parse("20060102T150405Z", q.Get("X-Amz-Date"))
+	if err != nil || signedAt.After(now.Add(30*time.Second)) ||
+		!signedAt.Add(time.Duration(seconds)*time.Second).After(now) ||
+		signedAt.Add(time.Duration(seconds)*time.Second).UnixMilli() > grantExpiry {
+		return nil, errors.New("expired source signature")
+	}
+	return u, nil
 }

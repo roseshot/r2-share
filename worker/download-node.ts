@@ -1,9 +1,48 @@
-import { signToken } from "./crypto";
+import { AwsClient } from "aws4fetch";
+import { b64, signToken } from "./crypto";
+import { awsS3ObjectUrl, b2ObjectUrl, getStorageConfig, r2ObjectUrl } from "./object-store";
 import { dataKey, validStoredId, type Bindings, type FileRecord } from "./model";
 
 /** Optional download offload nodes. Absence keeps the original Worker streaming behavior. */
 const maxNodes = 16;
 const grantTtlMs = 90_000;
+const sourceKeyPrefix = "tuckbox-download-source/v1:";
+
+async function encryptedSource(secret: string, urls: { get: string; head: string }): Promise<string> {
+  const encoder = new TextEncoder();
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(sourceKeyPrefix + secret));
+  const key = await crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv }, key, encoder.encode(JSON.stringify(urls)),
+  );
+  return b64(iv) + "." + b64(new Uint8Array(encrypted));
+}
+
+/** Only the Worker signs private object requests; nodes receive encrypted, short-lived URLs. */
+async function presignedSource(env: Bindings, storageId: string, key: string, ttlSeconds: number) {
+  const storage = getStorageConfig(env, storageId);
+  if (!storage) throw new Error("Storage ID is not configured");
+  const endpoint = storage.backend === "b2"
+    ? b2ObjectUrl(storage.region, storage.bucket, key)
+    : storage.backend === "r2"
+      ? r2ObjectUrl(storage.accountId, storage.bucket, key)
+      : awsS3ObjectUrl(storage.region, storage.bucket, key);
+  const client = new AwsClient({
+    service: "s3",
+    region: storage.backend === "r2" ? "auto" : storage.region,
+    accessKeyId: storage.backend === "b2" ? storage.keyId : storage.accessKeyId,
+    secretAccessKey: storage.backend === "b2" ? storage.applicationKey : storage.secretAccessKey,
+    retries: 0,
+  });
+  const url = new URL(endpoint);
+  url.searchParams.set("X-Amz-Expires", String(ttlSeconds));
+  const [get, head] = await Promise.all([
+    client.sign(new Request(url), { aws: { signQuery: true } }),
+    client.sign(new Request(url, { method: "HEAD" }), { aws: { signQuery: true } }),
+  ]);
+  return { get: get.url, head: head.url };
+}
 
 export function configuredDownloadNodes(env: Bindings): URL[] {
   const raw = env.DOWNLOAD_NODES?.trim() ?? "";
@@ -57,11 +96,18 @@ export async function redirectedDownload(
       expiry = Math.min(expiry, timestamp);
     }
   }
+  // Allow for signature timestamp rounding and the time spent generating both URLs.
+  const ttlSeconds = Math.floor((expiry - Date.now()) / 1000) - 2;
+  if (ttlSeconds < 1) throw new Error("Download grant expires too soon");
   const node = pickDownloadNode(nodes, record.id);
+  const source = await encryptedSource(
+    env.DOWNLOAD_NODE_SECRET!, await presignedSource(env, record.storageId, dataKey(record.id), ttlSeconds),
+  );
   const signed = await signToken(env.DOWNLOAD_NODE_SECRET!, {
     scope: "tuckbox-download/v1",
     key: dataKey(record.id),
     storageId: record.storageId,
+    source,
     filename: record.filename,
     mime: record.mime,
     size: record.size,
@@ -70,8 +116,7 @@ export async function redirectedDownload(
   });
   const target = new URL("/v1/download", node);
   target.searchParams.set("token", signed);
-  // No Worker file bytes traverse this redirect. The node validates the
-  // short-lived grant and privately fetches the object from its configured S3.
+  // The redirect contains neither bucket credentials nor plaintext presigned URLs.
   return new Response(null, {
     status: 307,
     headers: {

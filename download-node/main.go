@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -16,23 +15,6 @@ func loadServer() (*server, error) {
 	if len(secret) < 32 {
 		return nil, errors.New("DOWNLOAD_NODE_SECRET must be at least 32 characters")
 	}
-	var list []storageConfig
-	if err := json.Unmarshal([]byte(os.Getenv("STORAGES_JSON")), &list); err != nil {
-		return nil, errors.New("invalid STORAGES_JSON")
-	}
-	if len(list) < 1 || len(list) > 32 {
-		return nil, errors.New("STORAGES_JSON requires 1–32 entries")
-	}
-	stores := make(map[string]storageConfig, len(list))
-	for _, item := range list {
-		if _, ok := stores[item.ID]; ok {
-			return nil, errors.New("duplicate storage ID")
-		}
-		if _, _, _, _, err := item.endpoint(); err != nil {
-			return nil, err
-		}
-		stores[item.ID] = item
-	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	transport.ResponseHeaderTimeout = 25 * time.Second
@@ -46,7 +28,7 @@ func loadServer() (*server, error) {
 			return nil, errors.New("CORS_ORIGIN must be an HTTPS origin")
 		}
 	}
-	return &server{secret: []byte(secret), storages: stores, httpClient: client, now: time.Now, corsOrigin: cors}, nil
+	return &server{secret: []byte(secret), httpClient: client, now: time.Now, corsOrigin: cors}, nil
 }
 
 func main() {

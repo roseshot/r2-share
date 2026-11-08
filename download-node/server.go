@@ -14,7 +14,6 @@ import (
 
 type server struct {
 	secret     []byte
-	storages   map[string]storageConfig
 	httpClient *http.Client
 	now        func() time.Time
 	corsOrigin string
@@ -97,14 +96,22 @@ func (s *server) download(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid or expired download token", http.StatusForbidden)
 		return
 	}
-	storage, ok := s.storages[c.StorageID]
-	if !ok {
-		http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+	source, err := decryptSource(c.Source, s.secret)
+	if err != nil {
+		http.Error(w, "invalid download source", http.StatusForbidden)
+		return
+	}
+	selected := source.Get
+	if r.Method == http.MethodHead {
+		selected = source.Head
+	}
+	if _, err := validateSignedURL(selected, c.Key, c.Exp, s.now()); err != nil {
+		http.Error(w, "invalid download source", http.StatusForbidden)
 		return
 	}
 	if r.Method == http.MethodHead {
 		// Worker handles the normal HEAD preflight. This is for direct clients.
-		s.fetchObject(w, r, storage, c, "", "", c.Size)
+		s.fetchObject(w, r, selected, c, "", "", c.Size)
 		return
 	}
 	raw := r.Header.Get("Range")
@@ -118,19 +125,22 @@ func (s *server) download(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
-	s.fetchObject(w, r, storage, c, byteRange, contentRange, expected)
+	s.fetchObject(w, r, selected, c, byteRange, contentRange, expected)
 }
 
-func (s *server) fetchObject(w http.ResponseWriter, r *http.Request, storage storageConfig, c claims, byteRange, contentRange string, expected int64) {
-	request, err := signS3Request(r.Method, storage, c.Key, byteRange, s.now())
+func (s *server) fetchObject(w http.ResponseWriter, r *http.Request, sourceURL string, c claims, byteRange, contentRange string, expected int64) {
+	request, err := http.NewRequestWithContext(r.Context(), r.Method, sourceURL, nil)
 	if err != nil {
 		http.Error(w, "storage configuration error", http.StatusServiceUnavailable)
 		return
 	}
-	request = request.WithContext(r.Context())
+	request.Header.Set("Accept-Encoding", "identity")
+	if byteRange != "" {
+		request.Header.Set("Range", byteRange)
+	}
 	response, err := s.httpClient.Do(request)
 	if err != nil {
-		slog.Warn("bucket request failed", "error", err)
+		slog.Warn("bucket request failed")
 		http.Error(w, "storage unavailable", http.StatusBadGateway)
 		return
 	}

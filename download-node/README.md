@@ -1,9 +1,10 @@
 # TuckBox Go download offload node
 
 Standalone Go 1.23+ service to **stream** authorized TuckBox downloads directly
-from a private Backblaze B2, Cloudflare R2, or AWS S3 bucket. No D1 or TuckBox
-admin password is needed on this service, and no third-party Go dependencies
-are required. The main Cloudflare Worker remains the authorization authority.
+from a private Backblaze B2, Cloudflare R2, or AWS S3 bucket. The node needs
+**no bucket credentials, bucket configuration, D1 access, or administrator password**.
+Only the Cloudflare Worker holds storage credentials and issues encrypted,
+short-lived presigned download URLs. No third-party Go dependencies are required.
 
 ## Request flow
 
@@ -12,12 +13,14 @@ Browser -- GET /api/files/<Share ID>/download --> Cloudflare Worker
                         |
                 Validate share existence / expiration / access code
                         |
-                Issue 90-second signed download grant
+                Presign GET/HEAD using Worker-held storage credentials
+                        |
+                Encrypt URLs in a 90-second signed download grant
                         |
                    HTTP 307 redirect
                         |
                   Go download node
-                  (verify HMAC, host and expiry)
+                  (verify HMAC, decrypt URLs, validate origin and expiry)
                         |
                 Private S3-compatible GET
                         |
@@ -37,9 +40,6 @@ download path is unchanged.
 2. On the Go server, set:
    - `DOWNLOAD_NODE_SECRET`: **the same random secret** used by the Worker,
      at least 32 characters (`openssl rand -hex 32`).
-   - `STORAGES_JSON`: a JSON array of your private B2/R2/S3 storage
-     definitions. **IDs must exactly match TuckBox Admin's Storage IDs**.
-     Use **read-only GetObject permissions** where your provider allows it.
    - `LISTEN_ADDR`: defaults to `:8080`.
    - `CORS_ORIGIN`: optional, a single HTTPS origin for explicit cross-origin
      clients. Normal browser downloads do not require this.
@@ -56,7 +56,8 @@ download path is unchanged.
 
    Configure secrets for the deployed Worker used by the project; if your
    setup uses a different Wrangler config, specify the corresponding config.
-   All nodes should have matching storage configuration and the same secret.
+   All nodes must use the same secret. Bucket credentials remain exclusively
+   in TuckBox's existing Worker-side storage configuration.
 
 Build and test locally:
 
@@ -80,26 +81,22 @@ Copy `.env.example` to `.env` on the server, replace placeholders, protect
 file permissions, and **never commit `.env`**. Check `GET /healthz` on the
 Go server from your reverse proxy/monitor.
 
-### Storage configuration examples
+### Storage access
 
-Supply the corresponding JSON entry in `STORAGES_JSON`:
+The Worker uses the storage credentials already configured in TuckBox Admin to
+create presigned S3 **GET and HEAD** URLs, valid for at most 90 seconds and
+never beyond the authorized file or share expiration. It encrypts those URLs
+with AES-256-GCM using a key derived from `DOWNLOAD_NODE_SECRET`, then signs the
+grant for the selected node. The browser sees only an opaque grant, not a bucket
+URL or credentials. The node decrypts the URLs, checks the expected object key,
+provider hostname and signature expiry, and streams full or single-range
+downloads (HTTP 206). Invalid or multipart ranges return 416. Upstream HTTP
+status, byte count, and `Content-Range` are verified before responding.
 
-```json
-[
-  {"id":"b2-primary","backend":"b2","bucket":"my-bucket","region":"us-west-004",
-   "keyId":"B2_KEY_ID","applicationKey":"B2_APPLICATION_KEY"},
-  {"id":"r2-media","backend":"r2","bucket":"media","accountId":"0123456789abcdef0123456789abcdef",
-   "accessKeyId":"R2_ACCESS_KEY_ID","secretAccessKey":"R2_SECRET_ACCESS_KEY"},
-  {"id":"aws-backup","backend":"s3","bucket":"archive","region":"us-east-1",
-   "accessKeyId":"AWS_ACCESS_KEY_ID","secretAccessKey":"AWS_SECRET_ACCESS_KEY"}
-]
-```
-
-The node generates private, SigV4-authenticated S3 **GET/HEAD** requests
-against the same path-style endpoints as TuckBox. No bucket URLs or credentials
-are sent to the browser. It streams full downloads and single byte ranges
-(HTTP 206); invalid/multipart ranges return 416. Upstream HTTP status,
-byte count, and `Content-Range` are verified before responding.
+The Go node does not read `STORAGES_JSON`, S3 access key IDs, application keys,
+or secret access keys. Remove any legacy storage credentials from its environment
+and redeploy the Worker and all nodes together, as older grants are incompatible
+with the new encrypted source format.
 
 ### Multiple nodes / traffic steering
 
@@ -126,8 +123,9 @@ DNS-only hostnames pointed at the Go servers and terminate TLS there.
   URLs, and the bucket stays private.
 - Node `Host` must match the host in the signed grant; preserve it through
   your TLS reverse proxy. Keep clocks synchronized using NTP.
-- Keep the Go node credentials read-only and the shared secret outside Git.
-  Rotate the same secret on all nodes and the Worker together.
+- Keep the node's shared secret outside Git. Rotate the same secret on all
+  nodes and the Worker together. Storage credentials are never deployed
+  to the Go nodes.
 - There is no automatic failover, rate limiting, or bandwidth accounting.
   Monitor node health, outbound bandwidth, response latency and S3 costs.
   Private bucket `GetObject` charges and node egress fees may apply.
