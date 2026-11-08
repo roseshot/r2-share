@@ -1,0 +1,28 @@
+# Dependencies and generated output
+node_modules/
+dist/
+.wrangler/
+.vite/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Secrets / local config
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Generated runtime binding configuration
+wrangler.generated.jsonc
+
+# Locally built Go download node binary
+download-node/download-node
+download-node/tuckbox-download-node

@@ -1,0 +1,939 @@
+import { Hono } from "hono";
+import { monitorUpload } from "./integrity";
+import { importRemoteFile, RemoteImportError, validateRemoteUrl } from "./url-import";
+import { previewFormat } from "../src/preview-types";
+import { parseByteRange } from "./ranges";
+import { redirectedDownload } from "./download-node";
+import { getCachedVirusTotalReport, processVirusTotalQueue } from "./virustotal";
+import { generatePlaceholderShare } from "./placeholder-share";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import type { Bindings, FileRecord, ShareRecord, Mode, StorageConfig } from "./model";
+import { MAX_FILE_BYTES, EXPIRATIONS, validId, validStorageId, dataKey, expired, shareLinkExpired, expirationDate, validChecksums, validStoredId, validPublicUploadId } from "./model";
+import { randomId, randomFileId, randomPublicUploadId, randomRevision, randomCode, signToken, readToken, equalText, encryptCode, decryptCode } from "./crypto";
+import { getRecord, saveRecord, deleteRecord, listFilePage, cleanupExpired, reserveUpload, claimUpload, finishUpload, abandonUpload, storageInUse, getStorageUsage } from "./storage";
+import { getObjectStore, isStorageConfigured } from "./object-store";
+import { getShare, getPrimaryShare, listShares, listSharesForFileIds, createShare, updateShare, deleteShare } from "./shares";
+import { resolveBindings, readAppSettings, saveAppSettings, validateSettings, validateStorage, publicStorage, type AppSettings } from "./app-config";
+import { getPublicUploadPage, listPublicUploadPages, createPublicUploadPage, revokePublicUploadPage,
+  reservePublicUpload, claimPublicUpload, finishPublicUpload, publicPageAvailability } from "./public-upload";
+
+type Environment = { Bindings: Bindings };
+const app = new Hono<Environment>();
+
+const jsonError = (message: string, status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500 | 503 = 400) =>
+  new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
+const adminCookieName = "tuckbox_admin";
+const downloadCookie = (id: string) => "tuckbox_access_" + id;
+const shareAuthorizationDuration = 86400;
+function clearShareAuthorization(c: import("hono").Context<Environment>, id: string) {
+  deleteCookie(c, downloadCookie(id), { path: "/" });
+}
+const validEntry = (entry: string | undefined, env: Bindings): boolean =>
+  !!entry && /^[a-zA-Z0-9_-]+$/.test(env.ADMIN_PATH ?? "") && entry === env.ADMIN_PATH;
+const age = (seconds: number) => Date.now() + seconds * 1000;
+const shareView = (share: ShareRecord) => ({
+  id: share.id, label: share.label ?? "", mode: share.mode, createdAt: share.createdAt,
+  shareExpiresAt: share.expiresAt, showVirusTotal: share.showVirusTotal,
+});
+const serialize = (record: FileRecord, shares: ShareRecord[] = []) => {
+  const { encryptedCode: _private, expiresAt: _fileExpiry,
+    mode: _mode, revision: _revision, shareExpiresAt: _shareExpiresAt, ...publicRecord } = record;
+  void _private; void _fileExpiry; void _mode; void _revision; void _shareExpiresAt;
+  return { ...publicRecord, fileExpiresAt: record.expiresAt,
+    shares: shares.map(shareView) };
+};
+
+
+app.use("*", async (c, next) => {
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "no-referrer");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Cache-Control", "no-store");
+  await next();
+});
+
+app.get("/", c => serveHtml(c.req.raw, c.env));
+async function serveHtml(request: Request, env: Bindings): Promise<Response> {
+  const target = new URL("/index.html", request.url);
+  const response = await env.ASSETS.fetch(new Request(target, request));
+  if (response.status >= 300 && response.status < 400) {
+    return new Response("Unable to serve the HTML asset", { status: 502 });
+  }
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Robots-Tag", "noindex, nofollow");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Referrer-Policy", "no-referrer");
+  return new Response(response.body, { status: response.status, headers });
+}
+
+async function resolveSharedFile(env: Bindings, shareId: string) {
+  const share = await getShare(env, shareId);
+  if (!share) return null;
+  const record = await getRecord(env, share.fileId);
+  return record && !shareLinkExpired(record, share) ? { record, share } : null;
+}
+
+function hasShareAuthorization(claims: Record<string, unknown> | null, share: ShareRecord): boolean {
+  return !!claims && claims.scope === "download" &&
+    claims.id === share.id && claims.revision === share.revision;
+}
+
+async function verifySharedAccess(c: import("hono").Context<Environment>, share: ShareRecord) {
+  const token = await readToken(c.env.SESSION_SECRET, getCookie(c, downloadCookie(share.id)));
+  return hasShareAuthorization(token, share);
+}
+
+app.get("/api/files/:id", async c => {
+  const id = c.req.param("id");
+  if (!/^[A-Za-z0-9_-]{8,12}$/.test(id)) return jsonError("File not found", 404);
+  const result = validId(id) ? await resolveSharedFile(c.env, id) : null;
+  if (!result) {
+    if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
+    return c.json(await generatePlaceholderShare(id, c.env.SESSION_SECRET));
+  }
+  const { record, share } = result;
+  if (share.mode === "protected" && !await verifySharedAccess(c, share)) {
+    if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
+    return c.json({ id: share.id, mode: "protected" });
+  }
+  const checksums = validChecksums(record.checksums) ? record.checksums : null;
+  return c.json({ id: share.id, filename: record.filename, size: record.size, mime: record.mime,
+    ...(checksums ? { checksums } : {}),
+    ...(checksums && share.showVirusTotal ?
+      { virusTotal: await getCachedVirusTotalReport(c.env, checksums.sha256) } : {}),
+    ...(record.originalModifiedAt ? { originalModifiedAt: record.originalModifiedAt } : {}),
+    mode: share.mode });
+});
+
+app.post("/api/files/:id/unlock", async c => {
+  if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
+  const id = c.req.param("id");
+  if (!validId(id)) return jsonError("File not found", 404);
+  const result = await resolveSharedFile(c.env, id);
+  if (!result) {
+    clearShareAuthorization(c, id);
+    return c.json({ error: "File not found or expired" }, 404);
+  }
+  const { share } = result;
+  if (share.mode !== "protected") return jsonError("This link does not require an access code");
+  const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
+  const limit = await c.env.CODE_LIMITER.limit({ key: (ip + ":" + id).slice(0, 220) });
+  if (!limit.success) return jsonError("Too many attempts. Try again later.", 429);
+  const body = await readJson<{ code?: string }>(c.req.raw);
+  if (!body || typeof body.code !== "string" || body.code.length > 64) return jsonError("Invalid access code", 403);
+  const original = await decryptCode(share, c.env.CODE_ENCRYPTION_KEY);
+  if (!await equalText(body.code, original)) return jsonError("Invalid access code", 403);
+  const token = await signToken(c.env.SESSION_SECRET, {
+    scope: "download", id, revision: share.revision, exp: age(shareAuthorizationDuration)
+  });
+  setCookie(c, downloadCookie(id), token, { path: "/",
+    httpOnly: true, secure: true, sameSite: "Strict", maxAge: shareAuthorizationDuration });
+  return c.json({ ok: true });
+});
+
+async function streamFile(
+  env: Bindings, record: FileRecord, preview = false, request?: Request,
+  shareExpiresAt: string | null = null,
+): Promise<Response> {
+  const format = previewFormat(record.filename, record.mime);
+  if (preview && (!format || !format.contentType)) {
+    return jsonError("Preview not supported for this file type", 400);
+  }
+  if (!isStorageConfigured(env, record.storageId)) return jsonError("Storage ID is not configured", 503);
+  // Keep HEAD preflights and previews on the Worker. Only already-authorized
+  // GET downloads are redirected to a signed, short-lived Go transfer node.
+  if (!preview && request?.method === "GET") {
+    const redirect = await redirectedDownload(env, record, shareExpiresAt);
+    if (redirect) return redirect;
+  }
+  const store = getObjectStore(env, record.storageId);
+  const key = dataKey(record.id);
+  const filename = encodeURIComponent(record.filename);
+  const headers = new Headers({
+    "Content-Type": preview ? format!.contentType! : record.mime || "application/octet-stream",
+    "Content-Disposition": preview ? "inline" :
+      "attachment; filename=\"download\"; filename*=UTF-8''" + filename,
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Accept-Ranges": "bytes",
+    ...(preview ? { "Content-Security-Policy": "sandbox; default-src 'none'" } : {}),
+  });
+  if (request?.method === "HEAD") {
+    const object = await store.head(key);
+    if (!object) return jsonError("File not found", 404);
+    headers.set("Content-Length", String(object.size));
+    return new Response(null, { status: 200, headers });
+  }
+  // Honor single byte ranges; unsupported multipart ranges return 416.
+  // If-Range validators are not supported, so fall back to a complete response.
+  const requestedRange = request?.headers.has("If-Range") ? null : request?.headers.get("Range");
+  let rangeHeader: string | undefined;
+  let expectedContentRange: string | undefined;
+  let expectedLength: number | undefined;
+  if (requestedRange) {
+    const meta = await store.head(key);
+    if (!meta) return jsonError("File not found", 404);
+    const bytes = parseByteRange(requestedRange, meta.size);
+    if (!bytes) return new Response(null, { status: 416, headers: {
+      "Content-Range": "bytes */" + meta.size,
+      "Accept-Ranges": "bytes", "Cache-Control": "private, no-store",
+    } });
+    rangeHeader = "bytes=" + bytes.start + "-" + bytes.end;
+    expectedContentRange = "bytes " + bytes.start + "-" + bytes.end + "/" + meta.size;
+    expectedLength = bytes.end - bytes.start + 1;
+  }
+  const object = await store.get(key, rangeHeader);
+  if (!object) return jsonError("File not found", 404);
+  if (rangeHeader && (object.status !== 206 ||
+      object.contentRange !== expectedContentRange || object.size !== expectedLength)) {
+    await object.body.cancel();
+    return jsonError("Object storage did not return the requested byte range", 503);
+  }
+  headers.set("Content-Length", String(object.size));
+  if (expectedContentRange) headers.set("Content-Range", expectedContentRange);
+  return new Response(object.body, { status: rangeHeader ? 206 : 200, headers });
+}
+
+for (const action of ["preview", "download"] as const) {
+  app.on(["GET", "HEAD"], "/api/files/:id/" + action, async c => {
+    const id = c.req.param("id") ?? "";
+    if (!validId(id)) return jsonError("File not found", 404);
+    const result = await resolveSharedFile(c.env, id);
+    if (!result) {
+      clearShareAuthorization(c, id);
+      return c.json({ error: "File not found or expired" }, 404);
+    }
+    if (result.share.mode === "protected" && !await verifySharedAccess(c, result.share)) {
+      if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
+      return c.json({ error: "Enter the access code first" }, 403);
+    }
+    return streamFile(c.env, result.record, action === "preview", c.req.raw,
+      result.share.expiresAt);
+  });
+}
+
+app.use("/:entry/api/*", async (c, next) => {
+  const entry = c.req.param("entry");
+  if (!validEntry(entry, c.env)) return c.notFound();
+  if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method) && !sameOrigin(c.req.raw)) {
+    return jsonError("Invalid request origin", 403);
+  }
+  if (c.req.method === "POST" && c.req.path.endsWith("/login")) return next();
+  const claims = await readToken(c.env.SESSION_SECRET, getCookie(c, adminCookieName));
+  if (!claims || claims.scope !== "admin" || claims.entry !== entry ||
+      (c.env.ADMIN_AUTH_REVISION && claims.revision !== c.env.ADMIN_AUTH_REVISION)) {
+    return jsonError("Administrator sign-in required", 401);
+  }
+  await next();
+});
+
+app.post("/:entry/api/login", async c => {
+  if (!c.env.ADMIN_PASSWORD || c.env.ADMIN_PASSWORD.length < 6 ||
+      !c.env.SESSION_SECRET || c.env.SESSION_SECRET.length < 32 ||
+      !c.env.CODE_ENCRYPTION_KEY) return jsonError("Service is not securely configured", 503);
+  const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
+  const limit = await c.env.LOGIN_LIMITER.limit({ key: ip });
+  if (!limit.success) return jsonError("Too many sign-in attempts", 429);
+  const payload = await readJson<{ password?: string }>(c.req.raw);
+  if (typeof payload?.password !== "string" || payload.password.length > 256 ||
+      !await equalText(payload.password, c.env.ADMIN_PASSWORD)) {
+    return jsonError("Incorrect password", 401);
+  }
+  const entry = c.req.param("entry");
+  const token = await signToken(c.env.SESSION_SECRET, {
+    scope: "admin", entry, revision: c.env.ADMIN_AUTH_REVISION, exp: age(86400)
+  });
+  setCookie(c, adminCookieName, token, { path: "/" + entry, httpOnly: true,
+    secure: true, sameSite: "Strict", maxAge: 86400 });
+  return c.json({ ok: true });
+});
+
+app.get("/:entry/api/session", c => c.json({ authenticated: true, storage: "configured" }));
+
+app.post("/:entry/api/logout", c => {
+  deleteCookie(c, adminCookieName, { path: "/" + c.req.param("entry") });
+  return c.json({ ok: true });
+});
+
+app.get("/:entry/api/settings", async c => {
+  const settings = await readAppSettings(c.env);
+  return c.json({
+    storages: (settings?.storages ?? []).map(publicStorage),
+    storageUsage: await getStorageUsage(c.env, (settings?.storages ?? []).map(storage => storage.id)),
+    virusTotalEnabled: !!settings?.virusTotalApiKey,
+    downloadNodes: c.env.DOWNLOAD_NODES
+      ? c.env.DOWNLOAD_NODES.split(",").map(node => node.trim()) : [],
+    downloadNodeSecretConfigured: !!c.env.DOWNLOAD_NODE_SECRET && c.env.DOWNLOAD_NODE_SECRET.length >= 32,
+  });
+});
+
+app.patch("/:entry/api/settings/download-nodes", async c => {
+  if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).some(key => key !== "nodes" && key !== "secret") ||
+      !Array.isArray(body.nodes) ||
+      (body.secret !== undefined && typeof body.secret !== "string")) {
+    return jsonError("Invalid download node configuration");
+  }
+  const current = await readAppSettings(c.env) ?? { storages: [] };
+  const secret = body.secret || current.downloadNodeSecret;
+  const updated: AppSettings = {
+    ...current,
+    downloadNodes: body.nodes as string[],
+    ...(body.secret ? { downloadNodeSecret: body.secret } : {}),
+  };
+  try {
+    validateSettings(updated);
+    if (updated.downloadNodes!.length && (!secret || secret.length < 32)) {
+      throw new Error("A shared secret of at least 32 characters is required");
+    }
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Invalid download node configuration");
+  }
+  await saveAppSettings(c.env, updated);
+  return c.json({ ok: true });
+});
+
+app.patch("/:entry/api/settings", async c => {
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).some(key => key !== "virusTotalApiKey") ||
+      typeof body.virusTotalApiKey !== "string") return jsonError("Invalid settings request");
+  const current = await readAppSettings(c.env) ?? { storages: [] };
+  const updated: AppSettings = { ...current,
+    virusTotalApiKey: body.virusTotalApiKey || undefined };
+  try { validateSettings(updated); } catch { return jsonError("Invalid settings"); }
+  await saveAppSettings(c.env, updated);
+  return c.json({ ok: true });
+});
+
+async function verifyStorage(env: Bindings, storage: StorageConfig): Promise<boolean> {
+  const candidate = Object.assign(Object.create(env) as Bindings, { STORAGES: [storage] });
+  try {
+    await getObjectStore(candidate, storage.id).list({ prefix: "tuckbox/", limit: 1 });
+    return true;
+  } catch { return false; }
+}
+
+app.post("/:entry/api/settings/storages", async c => {
+  const body = await readJson<StorageConfig>(c.req.raw);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return jsonError("Invalid storage configuration");
+  try { validateStorage(body); } catch { return jsonError("Invalid storage configuration"); }
+  const current = await readAppSettings(c.env) ?? { storages: [] };
+  if (current.storages.some(storage => storage.id === body.id)) return jsonError("Storage ID already exists", 409);
+  const updated: AppSettings = { ...current, storages: [...current.storages, body] };
+  try { validateSettings(updated); } catch { return jsonError("Invalid storage configuration"); }
+  if (!await verifyStorage(c.env, body)) return jsonError("Unable to verify storage access", 503);
+  await saveAppSettings(c.env, updated);
+  return c.json({ ok: true, storage: publicStorage(body) }, 201);
+});
+
+app.patch("/:entry/api/settings/storages/:storageId", async c => {
+  const id = c.req.param("storageId");
+  if (!validStorageId(id)) return jsonError("Invalid storage ID");
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return jsonError("Invalid storage configuration");
+  const current = await readAppSettings(c.env);
+  const existing = current?.storages.find(storage => storage.id === id);
+  if (!current || !existing) return jsonError("Storage ID not found", 404);
+  const allowed = existing.backend === "b2"
+    ? ["bucket", "region", "keyId", "applicationKey"]
+    : existing.backend === "s3"
+      ? ["bucket", "region", "accessKeyId", "secretAccessKey"]
+      : ["bucket", "accountId", "accessKeyId", "secretAccessKey"];
+  if (Object.keys(body).some(key => !allowed.includes(key)) ||
+      Object.values(body).some(value => typeof value !== "string")) {
+    return jsonError("Invalid storage configuration");
+  }
+  const updatedStorage = { ...existing, ...body } as StorageConfig;
+  try { validateStorage(updatedStorage); } catch { return jsonError("Invalid storage configuration"); }
+  const changedLocation = existing.bucket !== updatedStorage.bucket ||
+    ((existing.backend === "b2" || existing.backend === "s3") &&
+      (updatedStorage.backend === "b2" || updatedStorage.backend === "s3") &&
+      existing.region !== updatedStorage.region) ||
+    (existing.backend === "r2" && updatedStorage.backend === "r2" &&
+      existing.accountId !== updatedStorage.accountId);
+  if (changedLocation && await storageInUse(c.env, id)) {
+    return jsonError("Storage contains files or active uploads; location cannot be changed", 409);
+  }
+  if (!await verifyStorage(c.env, updatedStorage)) return jsonError("Unable to verify storage access", 503);
+  await saveAppSettings(c.env, { ...current, storages: current.storages.map(storage =>
+    storage.id === id ? updatedStorage : storage) });
+  return c.json({ ok: true, storage: publicStorage(updatedStorage) });
+});
+
+app.delete("/:entry/api/settings/storages/:storageId", async c => {
+  const id = c.req.param("storageId");
+  if (!validStorageId(id)) return jsonError("Invalid storage ID");
+  const current = await readAppSettings(c.env);
+  if (!current?.storages.some(storage => storage.id === id)) return jsonError("Storage ID not found", 404);
+  if (await storageInUse(c.env, id)) {
+    return jsonError("Storage contains files or active uploads; delete those first", 409);
+  }
+  await saveAppSettings(c.env, { ...current,
+    storages: current.storages.filter(storage => storage.id !== id) });
+  return c.json({ ok: true });
+});
+
+app.post("/:entry/api/public-uploads", async c => {
+  const body = await readJson<{
+    label?: string; storageId?: string; expiresIn?: number; maxUploads?: number | null;
+  }>(c.req.raw);
+  if (!body || typeof body.label !== "string" || !body.label.trim() ||
+      body.label.length > 100 || /[\x00-\x1f\x7f]/.test(body.label) ||
+      !validStorageId(body.storageId) ||
+      !isStorageConfigured(c.env, body.storageId) ||
+      !EXPIRATIONS.some(value => value === body.expiresIn) ||
+      (body.maxUploads !== null && body.maxUploads !== undefined &&
+        (!Number.isSafeInteger(body.maxUploads) || body.maxUploads < 1 || body.maxUploads > 1000)) ||
+      (body.expiresIn === 0 && body.maxUploads == null)) {
+    return jsonError("Set a valid label, storage, and time or upload-count limit");
+  }
+  const page = {
+    id: randomPublicUploadId(), label: body.label.trim(), storageId: body.storageId,
+    expiresAt: expirationDate(body.expiresIn!),
+    maxUploads: body.maxUploads ?? null, completedUploads: 0,
+    createdAt: new Date().toISOString(),
+  };
+  await createPublicUploadPage(c.env, page);
+  return c.json({ page }, 201);
+});
+
+app.get("/:entry/api/public-uploads", async c =>
+  c.json({ pages: await listPublicUploadPages(c.env) }));
+
+app.delete("/:entry/api/public-uploads/:id", async c => {
+  const id = c.req.param("id");
+  if (!validPublicUploadId(id) || !await getPublicUploadPage(c.env, id)) return jsonError("Upload page not found", 404);
+  await revokePublicUploadPage(c.env, id);
+  return c.json({ ok: true });
+});
+
+app.get("/api/public-uploads/:id", async c => {
+  const page = await getPublicUploadPage(c.env, c.req.param("id"));
+  if (!page) return jsonError("Upload page not found", 404);
+  const state = await publicPageAvailability(c.env, page);
+  return c.json({ label: page.label, expiresAt: page.expiresAt,
+    maxUploads: page.maxUploads, ...state });
+});
+
+app.post("/api/public-uploads/:id/files", async c => {
+  if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
+  const page = await getPublicUploadPage(c.env, c.req.param("id"));
+  if (!page) return jsonError("Upload page not found", 404);
+  if (!isStorageConfigured(c.env, page.storageId)) return jsonError("Storage is unavailable", 503);
+  const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
+  const rate = await c.env.CODE_LIMITER.limit({ key: ("public-upload:" + page.id + ":" + ip).slice(0, 220) });
+  if (!rate.success) return jsonError("Too many upload attempts", 429);
+  const body = await readJson<{ filename?: string; size?: number; mime?: string }>(c.req.raw);
+  if (!body || typeof body.filename !== "string" || !body.filename ||
+      body.filename.length > 240 || /[\x00-\x1f\x7f]/.test(body.filename) ||
+      !Number.isSafeInteger(body.size) || (body.size ?? 0) < 1 ||
+      (body.size ?? 0) > MAX_FILE_BYTES) return jsonError("Invalid file parameters");
+  let id = randomFileId();
+  let reserved = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (id === c.env.ADMIN_PATH) { id = randomFileId(); continue; }
+    reserved = await reservePublicUpload(c.env, id, page);
+    if (reserved) break;
+    // Reservations are conditional on page quota and expiry.
+    return jsonError("Upload page expired or upload limit reached", 409);
+  }
+  if (!reserved) return jsonError("Unable to reserve upload", 409);
+  const revision = randomRevision();
+  const shareId = randomId();
+  const code = randomCode();
+  const mime = typeof body.mime === "string" && /^[\w.+-]+\/[\w.+-]+$/.test(body.mime)
+    ? body.mime : "application/octet-stream";
+  const record: FileRecord = {
+    id, revision, storageId: page.storageId, mode: "protected", mime,
+    filename: body.filename, size: body.size!,
+    createdAt: new Date().toISOString(), expiresAt: null, shareExpiresAt: null,
+    encryptedCode: await encryptCode(code, shareId, revision, c.env.CODE_ENCRYPTION_KEY),
+  };
+  const token = await signToken(c.env.SESSION_SECRET, {
+    scope: "public_upload", pageId: page.id, record, shareId, exp: age(600),
+  });
+  return c.json({ id, shareId, token });
+});
+
+app.put("/api/public-uploads/:id/files/:fileId", async c => {
+  if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
+  const pageId = c.req.param("id"), id = c.req.param("fileId");
+  if (!validPublicUploadId(pageId) || !validStoredId(id)) return jsonError("Invalid upload request");
+  const token = await readToken(c.env.SESSION_SECRET, c.req.header("X-Upload-Token"));
+  if (!token || token.scope !== "public_upload" || token.pageId !== pageId ||
+      !token.record || typeof token.record !== "object" ||
+      (token.record as FileRecord).id !== id || !validId(token.shareId as string))
+    return jsonError("Invalid upload authorization", 403);
+  const record = token.record as FileRecord;
+  const page = await getPublicUploadPage(c.env, pageId);
+  if (!page || page.storageId !== record.storageId || !isStorageConfigured(c.env, page.storageId)) {
+    return jsonError("Upload page unavailable", 404);
+  }
+  if (!Number.isSafeInteger(record.size) || record.size < 1 || record.size > MAX_FILE_BYTES ||
+      record.mode !== "protected" || !validStorageId(record.storageId)) {
+    return jsonError("Invalid upload authorization", 403);
+  }
+  const lengthHeader = c.req.header("Content-Length");
+  if (lengthHeader && Number(lengthHeader) !== record.size) return jsonError("File size mismatch");
+  if (!c.req.raw.body) return jsonError("File is empty");
+  if (!await claimPublicUpload(c.env, id, pageId, record.storageId)) {
+    return jsonError("Upload authorization expired or already used", 409);
+  }
+  const store = getObjectStore(c.env, page.storageId);
+  const integrity = monitorUpload(c.req.raw.body, record.size);
+  try {
+    const object = await store.put(dataKey(id), integrity.stream, record.mime, record.size);
+    const checksums = await integrity.result();
+    if (!object || object.size !== record.size || checksums.size !== record.size) {
+      await store.delete(dataKey(id));
+      await abandonUpload(c.env, id);
+      return jsonError("File size mismatch or exceeds 90 MiB", 413);
+    }
+    record.checksums = { sha256: checksums.sha256 };
+    if (!await finishPublicUpload(c.env, pageId, record, token.shareId as string)) {
+      await store.delete(dataKey(id));
+      await abandonUpload(c.env, id);
+      return jsonError("Upload page expired or upload limit reached", 409);
+    }
+    return c.json({ ok: true });
+  } catch (error) {
+    await store.delete(dataKey(id));
+    await abandonUpload(c.env, id);
+    throw error;
+  }
+});
+
+app.get("/:entry/api/files", async c => {
+  const rawPage = c.req.query("page") ?? "1";
+  const query = c.req.query("q") ?? "";
+  const storageId = c.req.query("storageId") ?? "";
+  const sort = c.req.query("sort") ?? "newest";
+  if (!/^[1-9][0-9]{0,5}$/.test(rawPage) || query.length > 100 ||
+      (storageId !== "" && !validStorageId(storageId)) ||
+      (sort !== "newest" && sort !== "oldest")) return jsonError("Invalid file search");
+  const { records, total, page, pageSize, hasMore } = await listFilePage(c.env, {
+    page: Number(rawPage), query, storageId, sort,
+  });
+  const shares = await listSharesForFileIds(c.env, records.map(record => record.id));
+  // This is a hash-keyed queue: once any file with identical bytes has been
+  // authorized or submitted, no sibling file can be submitted again. Exclude
+  // files with a cached report. This remains correct after a page reload.
+  const hashes = [...new Set(records
+    .filter(record => validChecksums(record.checksums))
+    .map(record => record.checksums!.sha256))];
+  const availableHashes = new Set<string>();
+  if (hashes.length) {
+    const placeholders = hashes.map(() => "?").join(",");
+    const rows = await c.env.DB.prepare(
+      "SELECT q.sha256 FROM virustotal_queue q WHERE q.sha256 IN (" +
+      placeholders + ") AND q.upload_file_id IS NULL AND q.upload_submitted_at IS NULL " +
+      "AND NOT EXISTS (SELECT 1 FROM virustotal_reports r WHERE r.sha256 = q.sha256)"
+    ).bind(...hashes).all<{ sha256: string }>();
+    for (const row of rows.results) availableHashes.add(row.sha256);
+  }
+  return c.json({ files: records.map(record => ({
+    ...serialize(record, shares.filter(share => share.fileId === record.id)),
+    canSubmitToVirusTotal: !!record.checksums &&
+      availableHashes.has(record.checksums.sha256),
+  })),
+    total, page, pageSize, hasMore, truncated: hasMore });
+});
+
+app.post("/:entry/api/uploads", async c => {
+  const body = await readJson<{
+    filename?: string; size?: number; mime?: string; shareExpiresIn?: number; fileExpiresIn?: unknown;
+    originalModifiedAt?: unknown;
+    mode?: Mode; code?: string; storageId?: string;
+  }>(c.req.raw);
+  if (!body || typeof body.filename !== "string" || body.filename.length < 1 ||
+      body.filename.length > 240 || /[\x00-\x1f\x7f]/.test(body.filename) ||
+      !Number.isSafeInteger(body.size) || (body.size ?? 0) <= 0 || (body.size ?? 0) > MAX_FILE_BYTES ||
+      body.fileExpiresIn !== undefined ||
+      (body.originalModifiedAt !== undefined && (
+        typeof body.originalModifiedAt !== "string" ||
+        !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(body.originalModifiedAt) ||
+        !Number.isFinite(Date.parse(body.originalModifiedAt)) ||
+        new Date(body.originalModifiedAt).toISOString() !== body.originalModifiedAt
+      )) ||
+      !EXPIRATIONS.some(x => x === body.shareExpiresIn) ||
+      !["public", "protected"].includes(body.mode ?? "") ||
+      !validStorageId(body.storageId)) {
+    return jsonError("Invalid file parameters");
+  }
+  const mode = body.mode as Mode;
+  const storageId = body.storageId!;
+  if (!isStorageConfigured(c.env, storageId)) {
+    return jsonError("Storage ID is not configured", 503);
+  }
+  if (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64)) {
+    return jsonError("Access code is too long");
+  }
+  const code = mode === "protected" ? (body.code?.trim() || randomCode()) : undefined;
+  if (code && code.length < 4) return jsonError("Access code must contain at least 4 characters");
+  let id = randomFileId();
+  while (id === c.env.ADMIN_PATH || !await reserveUpload(c.env, id, storageId)) id = randomFileId();
+  const shareId = randomId();
+  const revision = randomRevision();
+  const mime = typeof body.mime === "string" && /^[\w.+-]+\/[\w.+-]+$/.test(body.mime)
+    ? body.mime : "application/octet-stream";
+  const record: FileRecord = {
+    id, revision, storageId, mode, mime, filename: body.filename, size: body.size!,
+    ...(typeof body.originalModifiedAt === "string" ? { originalModifiedAt: body.originalModifiedAt } : {}),
+    createdAt: new Date().toISOString(),
+    expiresAt: null,
+    shareExpiresAt: expirationDate(body.shareExpiresIn!),
+    encryptedCode: code ? await encryptCode(code, shareId, revision, c.env.CODE_ENCRYPTION_KEY) : undefined
+  };
+  const token = await signToken(c.env.SESSION_SECRET, {
+    scope: "upload", record, shareId, exp: age(600)
+  });
+  return c.json({ id, shareId, token, code: code ?? null });
+});
+
+// Administrator-only server-side import; public upload pages do not expose it.
+app.post("/:entry/api/import-url", async c => {
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || Array.isArray(body) ||
+      Object.keys(body).some(key => ![
+        "url", "filename", "storageId", "mode", "code", "shareExpiresIn",
+      ].includes(key)) ||
+      typeof body.url !== "string" || body.url.length > 2048 ||
+      (body.filename !== undefined && typeof body.filename !== "string") ||
+      !validStorageId(body.storageId) ||
+      (body.mode !== "public" && body.mode !== "protected") ||
+      !EXPIRATIONS.some(n => n === body.shareExpiresIn) ||
+      (body.code !== undefined && (typeof body.code !== "string" ||
+        body.code.length > 64 || (body.mode === "protected" &&
+        body.code.trim().length > 0 && body.code.trim().length < 4)))) {
+    return jsonError("Invalid remote import parameters");
+  }
+  try {
+    // Validate before requesting the remote server. Redirects are checked by
+    // importRemoteFile before each subsequent network request as well.
+    validateRemoteUrl(body.url as string);
+    const imported = await importRemoteFile(c.env, {
+      url: body.url as string, filename: body.filename as string | undefined,
+      storageId: body.storageId as string,
+      mode: body.mode as Mode, code: body.code as string | undefined,
+      shareExpiresIn: body.shareExpiresIn as number,
+    });
+    return c.json(imported, 201);
+  } catch (error) {
+    if (error instanceof RemoteImportError) return jsonError(error.message, error.status);
+    return jsonError("Unable to import remote file", 503);
+  }
+});
+
+app.put("/:entry/api/uploads/:id", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id)) return jsonError("Invalid upload request");
+  const token = await readToken(c.env.SESSION_SECRET, c.req.header("X-Upload-Token"));
+  if (!token || token.scope !== "upload" ||
+      !token.record || typeof token.record !== "object" ||
+      (token.record as FileRecord).id !== id || !validId(token.shareId as string))
+    return jsonError("Invalid upload authorization", 403);
+  const record = token.record as FileRecord;
+  if (!validStorageId(record.storageId)) return jsonError("Invalid storage ID", 403);
+  if (!isStorageConfigured(c.env, record.storageId)) {
+    return jsonError("Storage ID is not configured", 503);
+  }
+  const lengthHeader = c.req.header("Content-Length");
+  if (lengthHeader && Number(lengthHeader) !== record.size) return jsonError("File size mismatch");
+  if (!c.req.raw.body) return jsonError("File is empty");
+  if (!await claimUpload(c.env, id, record.storageId)) return jsonError("Upload already started or expired", 409);
+  const store = getObjectStore(c.env, record.storageId);
+  const integrity = monitorUpload(c.req.raw.body, record.size);
+  try {
+    const object = await store.put(dataKey(id), integrity.stream, record.mime, record.size);
+    const checksums = await integrity.result();
+    if (!object || object.size !== record.size || checksums.size !== record.size) {
+      await store.delete(dataKey(id));
+      await abandonUpload(c.env, id);
+      return jsonError("File size mismatch or exceeds 90 MiB", 413);
+    }
+    record.checksums = { sha256: checksums.sha256 };
+    await finishUpload(c.env, record, token.shareId as string);
+    return c.json({ file: serialize(record, [{
+      id: token.shareId as string, fileId: record.id, mode: record.mode, revision: record.revision,
+      showVirusTotal: false, encryptedCode: record.encryptedCode, expiresAt: record.shareExpiresAt,
+      createdAt: record.createdAt,
+    }]) });
+  } catch (error) {
+    await store.delete(dataKey(id));
+    await abandonUpload(c.env, id);
+    throw error;
+  }
+});
+
+app.get("/:entry/api/files/:id/virustotal", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id)) return jsonError("File not found", 404);
+  const record = await getRecord(c.env, id);
+  if (!record || expired(record)) return jsonError("File not found or expired", 404);
+  if (!validChecksums(record.checksums)) {
+    return c.json({ status: "unavailable", reason: "No verified SHA-256 for this file" });
+  }
+  return c.json(await getCachedVirusTotalReport(c.env, record.checksums.sha256));
+});
+
+// Explicit per-file administrator consent. The daily cron checks SHA-256
+// before uploading any bytes to VirusTotal, never an unapproved file.
+app.post("/:entry/api/files/:id/virustotal/upload", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id)) return jsonError("File not found", 404);
+  const record = await getRecord(c.env, id);
+  if (!record || expired(record) || !validChecksums(record.checksums))
+    return jsonError("File not found or expired", 404);
+  if (!c.env.VIRUSTOTAL_API_KEY) return jsonError("VirusTotal API key is not configured", 503);
+  const sha256 = record.checksums.sha256;
+  if ((await getCachedVirusTotalReport(c.env, sha256)).status === "found")
+    return c.json({ status: "cached" });
+  const authorized = await c.env.DB.prepare(
+    "UPDATE virustotal_queue SET upload_file_id = ? WHERE sha256 = ? " +
+    "AND upload_file_id IS NULL AND upload_submitted_at IS NULL " +
+    "AND EXISTS (SELECT 1 FROM files WHERE id = ?)"
+  ).bind(id, sha256, id).run();
+  if (authorized.meta.changes === 1) return c.json({ status: "authorized" });
+  const row = await c.env.DB.prepare(
+    "SELECT upload_file_id, upload_submitted_at FROM virustotal_queue WHERE sha256 = ?"
+  ).bind(sha256).first<{ upload_file_id: string | null; upload_submitted_at: number | null }>();
+  if (!row) return jsonError("VirusTotal lookup is unavailable", 409);
+  if (row.upload_submitted_at !== null) return c.json({ status: "submitted" });
+  if (row.upload_file_id === id) return c.json({ status: "authorized" });
+  if (row.upload_file_id !== null)
+    return jsonError("Another file with the same SHA-256 is already authorized", 409);
+  return jsonError("VirusTotal upload authorization could not be saved", 409);
+});
+
+function validShareLabel(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 64 && !/[\x00-\x1f\x7f]/.test(value);
+}
+
+function validShareChanges(body: Record<string, unknown> | null): body is Record<string, unknown> {
+  return !!body && typeof body === "object" && !Array.isArray(body) &&
+    Object.keys(body).length > 0 &&
+    Object.keys(body).every(key => ["mode", "code", "shareExpiresIn", "label", "showVirusTotal"].includes(key)) &&
+    (body.mode === undefined || body.mode === "public" || body.mode === "protected") &&
+    (body.code === undefined || (typeof body.code === "string" && body.code.length <= 64)) &&
+    (body.label === undefined || validShareLabel(body.label)) &&
+    (body.showVirusTotal === undefined || typeof body.showVirusTotal === "boolean") &&
+    (body.shareExpiresIn === undefined || EXPIRATIONS.some(x => x === body.shareExpiresIn));
+}
+
+async function changeShare(env: Bindings, current: ShareRecord, body: Record<string, unknown>):
+  Promise<{ share: ShareRecord; code: string | null }> {
+  const mode = (body.mode ?? current.mode) as Mode;
+  let code: string | null = null;
+  if (mode === "protected") {
+    code = (body.code as string | undefined)?.trim() ||
+      (current.mode === "protected"
+        ? await decryptCode(current, env.CODE_ENCRYPTION_KEY) : randomCode());
+    if (code.length < 4) throw new Error("Invalid access code");
+  }
+  const revision = Object.keys(body).every(key => key === "label" || key === "showVirusTotal")
+    ? current.revision : randomRevision();
+  const share: ShareRecord = {
+    ...current, mode, revision, label: (body.label as string | undefined)?.trim() ?? current.label ?? "",
+    showVirusTotal: body.showVirusTotal === undefined ? current.showVirusTotal : body.showVirusTotal as boolean,
+    expiresAt: body.shareExpiresIn === undefined ? current.expiresAt :
+      expirationDate(body.shareExpiresIn as number),
+    encryptedCode: code ? await encryptCode(code, current.id, revision, env.CODE_ENCRYPTION_KEY) : undefined,
+  };
+  await updateShare(env, share);
+  return { share, code };
+}
+
+app.get("/:entry/api/files/:id/code", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id)) return jsonError("File not found", 404);
+  const share = await getPrimaryShare(c.env, id);
+  return c.json({ code: share?.mode === "protected"
+    ? await decryptCode(share, c.env.CODE_ENCRYPTION_KEY) : null });
+});
+
+app.patch("/:entry/api/files/:id", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id)) return jsonError("File not found", 404);
+  const record = await getRecord(c.env, id);
+  if (!record || expired(record)) return jsonError("File not found or expired", 404);
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || Array.isArray(body) || !Object.keys(body).length ||
+      Object.keys(body).some(key =>
+        !["mode", "code", "shareExpiresIn", "fileExpiresIn", "filename"].includes(key)) ||
+      (body.fileExpiresIn !== undefined && !EXPIRATIONS.some(x => x === body.fileExpiresIn)) ||
+      (body.filename !== undefined &&
+        (typeof body.filename !== "string" || !body.filename.trim() ||
+          body.filename.length > 240 || /[\x00-\x1f\x7f]/.test(body.filename)))) {
+    return jsonError("Invalid update parameters");
+  }
+  const changes = Object.fromEntries(Object.entries(body).filter(([key]) =>
+    !["fileExpiresIn", "filename"].includes(key)));
+  let code: string | null = null;
+  if (Object.keys(changes).length) {
+    if (!validShareChanges(changes)) return jsonError("Invalid share settings");
+    const existing = await getPrimaryShare(c.env, id);
+    if (!existing || existing.fileId !== id) return jsonError("Primary share not found", 404);
+    if (changes.code !== undefined && typeof changes.code === "string" &&
+        changes.code.trim() && changes.code.trim().length < 4) return jsonError("Access code must contain at least 4 characters");
+    ({ code } = await changeShare(c.env, existing, changes));
+  }
+  if (body.fileExpiresIn !== undefined || body.filename !== undefined) {
+    if (body.filename !== undefined) record.filename = (body.filename as string).trim();
+    if (body.fileExpiresIn !== undefined) record.expiresAt = expirationDate(body.fileExpiresIn as number);
+    await saveRecord(c.env, record);
+  }
+  return c.json({ file: serialize(record, await listShares(c.env, id)), code });
+});
+
+app.get("/:entry/api/files/:id/shares", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id) || !await getRecord(c.env, id)) return jsonError("File not found", 404);
+  return c.json({ shares: (await listShares(c.env, id)).map(shareView) });
+});
+
+app.post("/:entry/api/files/:id/shares", async c => {
+  const fileId = c.req.param("id");
+  const record = await getRecord(c.env, fileId);
+  if (!record || expired(record)) return jsonError("File not found or expired", 404);
+  const body = await readJson<{ mode?: Mode; code?: string; shareExpiresIn?: number; label?: string;
+    showVirusTotal?: boolean }>(c.req.raw);
+  if (!body || (body.mode !== "public" && body.mode !== "protected") ||
+      !EXPIRATIONS.some(x => x === body.shareExpiresIn) ||
+      (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64)) ||
+       (body.label !== undefined && !validShareLabel(body.label)) ||
+       (body.showVirusTotal !== undefined && typeof body.showVirusTotal !== "boolean")) {
+    return jsonError("Invalid share parameters");
+  }
+  const code = body.mode === "protected" ? body.code?.trim() || randomCode() : null;
+  if (code && code.length < 4) return jsonError("Access code must contain at least 4 characters");
+  let id = randomId();
+  while (id === c.env.ADMIN_PATH || await getShare(c.env, id) || await getRecord(c.env, id)) id = randomId();
+  const revision = randomRevision();
+  const share: ShareRecord = {
+    id, fileId, label: body.label?.trim() ?? "", showVirusTotal: body.showVirusTotal ?? false,
+    mode: body.mode, revision, createdAt: new Date().toISOString(),
+    expiresAt: expirationDate(body.shareExpiresIn!),
+    encryptedCode: code ? await encryptCode(code, id, revision, c.env.CODE_ENCRYPTION_KEY) : undefined,
+  };
+  await createShare(c.env, share);
+  return c.json({ share: shareView(share), code }, 201);
+});
+
+app.patch("/:entry/api/files/:id/shares/:shareId", async c => {
+  const fileId = c.req.param("id"), shareId = c.req.param("shareId");
+  if (!validStoredId(fileId) || !validId(shareId)) return jsonError("Share not found", 404);
+  const record = await getRecord(c.env, fileId);
+  const share = await getShare(c.env, shareId);
+  if (!record || expired(record) || !share || share.fileId !== fileId) {
+    return jsonError("Share not found", 404);
+  }
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!validShareChanges(body)) return jsonError("Invalid share settings");
+  if (typeof body.code === "string" && body.code.trim() && body.code.trim().length < 4) {
+    return jsonError("Access code must contain at least 4 characters");
+  }
+  const changed = await changeShare(c.env, share, body);
+  return c.json({ share: shareView(changed.share), code: changed.code });
+});
+
+app.get("/:entry/api/files/:id/shares/:shareId/code", async c => {
+  const fileId = c.req.param("id"), shareId = c.req.param("shareId");
+  const share = await getShare(c.env, shareId);
+  if (!share || share.fileId !== fileId) return jsonError("Share not found", 404);
+  return c.json({ code: share.mode === "protected"
+    ? await decryptCode(share, c.env.CODE_ENCRYPTION_KEY) : null });
+});
+
+app.delete("/:entry/api/files/:id/shares/:shareId", async c => {
+  const fileId = c.req.param("id"), shareId = c.req.param("shareId");
+  if (!validStoredId(fileId) || !validId(shareId)) return jsonError("Share not found", 404);
+  const share = await getShare(c.env, shareId);
+  if (!share || share.fileId !== fileId) return jsonError("Share not found", 404);
+  await deleteShare(c.env, fileId, shareId);
+  return c.json({ ok: true });
+});
+
+app.delete("/:entry/api/files/:id", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id)) return jsonError("File not found", 404);
+  await deleteRecord(c.env, id);
+  return c.json({ ok: true });
+});
+
+app.get("/:entry/api/files/:id/download", async c => {
+  const id = c.req.param("id");
+  if (!validStoredId(id)) return jsonError("File not found", 404);
+  const record = await getRecord(c.env, id);
+  if (!record || expired(record)) return jsonError("File not found or expired", 404);
+  return streamFile(c.env, record, false, c.req.raw);
+});
+
+app.get("/u/:id", async c => {
+  const page = await getPublicUploadPage(c.env, c.req.param("id"));
+  if (!page) return c.redirect("/", 302);
+  return serveHtml(c.req.raw, c.env);
+});
+
+app.get("/tuckbox-mark.svg", c => c.env.ASSETS.fetch(c.req.raw));
+
+app.get("/:entry", async c => {
+  const entry = c.req.param("entry");
+  // Render the branded page even for an unknown or malformed share ID.
+  // The metadata API renders a stable server-generated decoy for missing shares.
+  // This HTML response grants no file access; download routes still enforce authorization.
+  if (!/^[a-zA-Z0-9_-]+$/.test(entry)) return c.notFound();
+  return serveHtml(c.req.raw, c.env);
+});
+app.get("/assets/*", c => c.env.ASSETS.fetch(c.req.raw));
+// Vite dev server assets. No application HTML route is exposed here.
+app.get("/@vite/*", c => c.env.ASSETS.fetch(c.req.raw));
+app.get("/@react-refresh", c => c.env.ASSETS.fetch(c.req.raw));
+app.get("/src/*", c => c.env.ASSETS.fetch(c.req.raw));
+app.get("/node_modules/*", c => c.env.ASSETS.fetch(c.req.raw));
+
+app.notFound(c => {
+  const path = c.req.path;
+  const resource = path === "/api" || path.startsWith("/api/") || path.includes("/api/") ||
+    ["/assets/", "/@vite/", "/src/", "/node_modules/"].some(prefix => path.startsWith(prefix)) ||
+    path === "/@react-refresh";
+  if ((c.req.method === "GET" || c.req.method === "HEAD") && !resource) {
+    return c.redirect("/", 302);
+  }
+  return c.text("Not found", 404);
+});
+app.onError((error) => { console.error("Internal server error:", error.name); return jsonError("Internal server error", 500); });
+
+async function readJson<T>(request: Request): Promise<T | null> {
+  if (!(request.headers.get("Content-Type") ?? "").startsWith("application/json")) return null;
+  try { return await request.json() as T; } catch { return null; }
+}
+function sameOrigin(request: Request): boolean {
+  const origin = request.headers.get("Origin");
+  return !!origin && origin === new URL(request.url).origin;
+}
+
+export default {
+  async fetch(request: Request, env: Bindings, context: ExecutionContext): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    const staticPage = path === "/" || path === "/tuckbox-mark.svg" ||
+      ["/assets/", "/@vite/", "/src/", "/node_modules/"].some(prefix => path.startsWith(prefix)) ||
+      path === "/@react-refresh";
+    try {
+      return await app.fetch(request, staticPage ? env : await resolveBindings(env), context);
+    } catch {
+      return jsonError("Service is not configured", 503);
+    }
+  },
+  async scheduled(controller: ScheduledController, env: Bindings): Promise<void> {
+    const configured = await resolveBindings(env);
+    if (!await readAppSettings(env)) return;
+    if (controller.cron === "1 0 * * *") {
+      await cleanupExpired(configured);
+      await processVirusTotalQueue(configured);
+    }
+  }
+} satisfies ExportedHandler<Bindings>;

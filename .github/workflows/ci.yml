@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Bun
+        run: npm install --global bun@1.4.4
+      - name: Install dependencies
+        run: bun install
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Unit tests
+        run: bun test
+      - name: Build Worker and assets (B2)
+        env:
+          D1_DATABASE_NAME: ci-d1
+          D1_DATABASE_ID: 00000000-0000-4000-8000-000000000001
+        run: bun run build
+
+  download-node:
+    name: Go download node
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: download-node
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: download-node/go.mod
+          cache: false
+      - name: Test Go node
+        run: go test -race -count=1 ./...
+      - name: Vet Go node
+        run: go vet ./...
+      - name: Build Go node
+        run: go build .
+      - name: Build download node Docker image
+        run: docker build --file Dockerfile --tag tuckbox-download-node:ci .

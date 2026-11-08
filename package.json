@@ -1,0 +1,39 @@
+{
+  "name": "tuckbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun scripts/configure-d1.mjs && wrangler d1 migrations apply DB --local --config wrangler.generated.jsonc && vite",
+    "build": "bun scripts/configure-d1.mjs && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "db:migrate": "bun scripts/configure-d1.mjs && wrangler d1 migrations apply DB --remote --config wrangler.generated.jsonc",
+    "deploy": "bun run db:migrate && bun run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.9.0",
+    "aws4fetch": "^1.0.18",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "fflate": "^0.8.2",
+    "hono": "^4.10.0",
+    "lucide-react": "^1.67.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.3.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.0.0",
+    "@cloudflare/workers-types": "latest",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "tailwindcss": "^4.1.0",
+    "typescript": "7.1.0-dev.20261104.1",
+    "vite": "^8.3.5",
+    "wrangler": "^4.45.0"
+  }
+}
