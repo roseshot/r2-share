@@ -2,6 +2,7 @@ import { StrictMode, Suspense, lazy, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { routeForPath, type Route } from "./lib/routes";
 import { Notifications } from "./components/notifications";
+import "@fontsource-variable/jetbrains-mono/wght.css";
 import "./style.css";
 
 const Home = lazy(() => import("./pages/home"));

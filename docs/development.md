@@ -55,6 +55,10 @@ docker build --file Dockerfile --tag tuckbox-download-node:local .
 
 See [Go download node](../services/download-node/README.md) for TLS, environment variables and Docker runtime configuration.
 
+## Fonts
+
+JetBrains Mono is bundled locally through `@fontsource-variable/jetbrains-mono` and Vite. The application imports the normal-style variable font in `src/main.tsx`; its WOFF2 files are built into same-origin `/assets/` files and served with Cloudflare Workers static assets. Body text uses the system sans-serif stack. Do not add runtime Google Fonts or third-party font CDN requests. JetBrains Mono is licensed under SIL Open Font License 1.1; its package retains the license notice.
+
 ## Repository layout
 
 ~~~text

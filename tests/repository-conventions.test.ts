@@ -121,6 +121,20 @@ describe("repository conventions", () => {
     expect(admin).not.toContain("<footer");
   });
 
+  test("serves JetBrains Mono from bundled assets without an external font CDN", () => {
+    const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+    const html = readFileSync(resolve(root, "index.html"), "utf8");
+    const main = readFileSync(resolve(root, "src/main.tsx"), "utf8");
+    const css = readFileSync(resolve(root, "src/style.css"), "utf8");
+    const worker = readFileSync(resolve(root, "worker/index.ts"), "utf8");
+    expect(pkg.dependencies["@fontsource-variable/jetbrains-mono"]).toBeDefined();
+    expect(main).toContain('import "@fontsource-variable/jetbrains-mono/wght.css"');
+    expect(css).toContain('--font-mono: "JetBrains Mono Variable"');
+    expect(css).toContain("--font-sans: ui-sans-serif");
+    expect(html).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com|fonts\.bunny\.net/);
+    expect(worker).toContain('app.get("/assets/*"');
+  });
+
   test("interactive components use Base UI, not Radix Slot", () => {
     const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
     expect(packageJson.dependencies["@base-ui/react"]).toBeDefined();
