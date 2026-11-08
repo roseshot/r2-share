@@ -8,6 +8,36 @@ updates:
       day: "thursday"
       time: "01:00"
       timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    ignore:
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "gomod"
+    directory: "/download-node"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "01:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "docker"
+    directory: "/download-node"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "01:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -16,3 +46,6 @@ updates:
       day: "thursday"
       time: "01:00"
       timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+      include: "scope"

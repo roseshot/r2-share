@@ -398,12 +398,12 @@ If you instead use `bun run deploy` as the Cloudflare **deploy command**, that i
 
 ## Dependency updates
 
-`.github/dependabot.yml` schedules npm and GitHub Actions checks every **Thursday at 01:00 UTC**. The `CI` workflow validates PRs.
+`.github/dependabot.yml` schedules npm, Go modules, download-node Docker images, and GitHub Actions checks every **Thursday at 01:00 UTC**. The `CI` workflow validates PRs and builds the Go node Docker image. Vite and `@vitejs/plugin-react` major updates are excluded from automated version PRs until their incompatible build changes can be migrated together.
 
 After successful pull-request CI, `.github/workflows/dependabot-auto-merge.yml` evaluates Dependabot metadata before merging. The policy:
 
 - Squash-merges eligible stable **patch/minor** updates after successful CI.
-- Leaves **major** and **prerelease** (including dev/beta/RC) updates for manual review.
+- Leaves other **major** and **prerelease** (including dev/beta/RC) updates for manual review.
 - Rejects failed CI, mismatched or changed commits, non-Dependabot PRs, and stale base commits.
 
 This is a post-CI merge action, not GitHub's per-PR `auto_merge` toggle. Protect `main` with a required **`validate`** CI status check in repository settings so that other merge paths are also gated; repository administration permissions are needed to configure branch protection.

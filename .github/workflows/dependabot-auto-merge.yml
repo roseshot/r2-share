@@ -23,7 +23,7 @@ jobs:
       pull-requests: write
     steps:
       # Check out only trusted main; never execute code from a dependency PR.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           persist-credentials: false

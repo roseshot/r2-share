@@ -41,3 +41,5 @@ jobs:
         run: go vet ./...
       - name: Build Go node
         run: go build .
+      - name: Build download node Docker image
+        run: docker build --file Dockerfile --tag tuckbox-download-node:ci .

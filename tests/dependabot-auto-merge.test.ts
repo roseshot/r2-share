@@ -123,6 +123,25 @@ describe("Dependabot auto-merge policy", () => {
     expect(evaluateDependabotMerge(grouped)).toContain("patch and minor");
   });
 
+  test("Dependabot covers application, Go, Docker, and Actions dependencies", () => {
+    const config = readFileSync(
+      new URL("../.github/dependabot.yml", import.meta.url), "utf8",
+    );
+    const ecosystems = [...config.matchAll(
+      /^  - package-ecosystem: "([^"]+)"\n    directory: "([^"]+)"$/gm,
+    )].map(match => [match[1], match[2]]);
+    expect(ecosystems).toEqual([
+      ["npm", "/"],
+      ["gomod", "/download-node"],
+      ["docker", "/download-node"],
+      ["github-actions", "/"],
+    ]);
+    expect(config.match(/    commit-message:/g)).toHaveLength(4);
+    expect(config).toContain('dependency-name: "vite"');
+    expect(config).toContain('dependency-name: "@vitejs/plugin-react"');
+    expect(config.match(/update-types: \["version-update:semver-major"\]/g)).toHaveLength(2);
+  });
+
   test("workflow runs after CI rather than with a privileged pull_request_target", () => {
     const config = readFileSync(
       new URL("../.github/workflows/dependabot-auto-merge.yml", import.meta.url), "utf8",
@@ -131,6 +150,7 @@ describe("Dependabot auto-merge policy", () => {
     expect(config).toContain('workflows: ["CI"]');
     expect(config).toContain("pull-requests: write");
     expect(config).toContain("persist-credentials: false");
+    expect(config).toContain("uses: actions/checkout@v7");
     expect(config).not.toContain("pull_request_target:");
     expect(config).toContain("scripts/dependabot-auto-merge.mjs");
   });
