@@ -50,7 +50,7 @@ func main() {
 	if address == "" {
 		address = ":8443"
 	}
-	httpServer := &http.Server{Addr: address, Handler: srv.routes(), TLSConfig: srv.tlsConfig, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	httpServer := &http.Server{Addr: address, Handler: srv.routes(), TLSConfig: srv.tlsConfig, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderValueCount: 64}
 	slog.Info("TuckBox download node listening with TLS", "address", address, "domain", srv.domain)
 	if err := httpServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("server stopped", "error", err)

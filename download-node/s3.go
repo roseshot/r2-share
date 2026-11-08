@@ -5,7 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/url"
 	"regexp"
@@ -30,15 +30,15 @@ var (
 
 func decryptSource(raw string, secret []byte) (signedSource, error) {
 	var source signedSource
-	parts := strings.Split(raw, ".")
-	if len(parts) != 2 || len(raw) > 2600 {
+	noncePart, ciphertextPart, ok := strings.Cut(raw, ".")
+	if !ok || strings.Contains(ciphertextPart, ".") || len(raw) > 2600 {
 		return source, errors.New("invalid encrypted source")
 	}
-	nonce, err := base64.RawURLEncoding.DecodeString(parts[0])
+	nonce, err := base64.RawURLEncoding.DecodeString(noncePart)
 	if err != nil || len(nonce) != 12 {
 		return source, errors.New("invalid source nonce")
 	}
-	sealed, err := base64.RawURLEncoding.DecodeString(parts[1])
+	sealed, err := base64.RawURLEncoding.DecodeString(ciphertextPart)
 	if err != nil || len(sealed) < 16 || len(sealed) > 1900 {
 		return source, errors.New("invalid source ciphertext")
 	}
@@ -52,7 +52,7 @@ func decryptSource(raw string, secret []byte) (signedSource, error) {
 		return source, err
 	}
 	plaintext, err := aead.Open(nil, nonce, sealed, nil)
-	if err != nil || json.Unmarshal(plaintext, &source) != nil || source.Get == "" || source.Head == "" {
+	if err != nil || json.Unmarshal(plaintext, &source, json.RejectUnknownMembers(true)) != nil || source.Get == "" || source.Head == "" {
 		return signedSource{}, errors.New("invalid encrypted source")
 	}
 	return source, nil

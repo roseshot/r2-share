@@ -1,10 +1,12 @@
 # TuckBox Go download offload node
 
-Standalone Go 1.23+ service to **stream** authorized TuckBox downloads directly
+Standalone Go 1.27.3+ service to **stream** authorized TuckBox downloads directly
 from a private Backblaze B2, Cloudflare R2, or AWS S3 bucket. The node needs
 **no bucket credentials, bucket configuration, D1 access, or administrator password**.
 Only the Cloudflare Worker holds storage credentials and issues encrypted,
-short-lived presigned download URLs. No third-party Go dependencies are required.
+short-lived presigned download URLs. No third-party Go dependencies are required. Download grants and encrypted
+source metadata use Go 1.27's strict JSON v2 decoder, rejecting duplicate and
+unknown members. The node also limits HTTP request header value counts.
 
 ## Request flow
 

@@ -415,7 +415,7 @@ the authorized Worker streams byte ranges from B2/R2/AWS S3 as before.
 
 ### Optional Go download nodes
 
-An independently deployable **Go 1.23 download node** lives in
+An independently deployable **Go 1.27.3 download node** lives in
 [download-node/](download-node/README.md), including a Dockerfile and detailed
 configuration. To enable it, deploy one or more nodes on HTTPS domains and
 open **Admin → Download nodes**. Add each HTTPS origin, enter a shared secret

@@ -26,6 +26,10 @@ const testKey = "tuckbox/3d4071e7-a4b3-4c06-9801-61f4aca13052"
 
 func grant(c claims) string {
 	body, _ := json.Marshal(c)
+	return grantPayload(body)
+}
+
+func grantPayload(body []byte) string {
 	encoded := base64.RawURLEncoding.EncodeToString(body)
 	mac := hmac.New(sha256.New, []byte(testSecret))
 	mac.Write([]byte(encoded))
@@ -47,6 +51,10 @@ func testSignedURL(host, bucket, region, signature string, now time.Time) string
 
 func sealSource(source signedSource) string {
 	plaintext, _ := json.Marshal(source)
+	return sealRawSource(plaintext)
+}
+
+func sealRawSource(plaintext []byte) string {
 	key := sha256.Sum256([]byte("tuckbox-download-source/v1:" + testSecret))
 	block, _ := aes.NewCipher(key[:])
 	aead, _ := cipher.NewGCM(block)
@@ -86,6 +94,59 @@ func call(s *server, method, token, byteRange string) *httptest.ResponseRecorder
 	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, req)
 	return rec
+}
+
+func TestStrictGrantJSONAndCanonicalObjectKeys(t *testing.T) {
+	node, c := testNode(func(*http.Request) (*http.Response, error) {
+		t.Fatal("invalid grant must not reach storage")
+		return nil, nil
+	})
+	if !validObjectKey(testKey) || !validObjectKey(testKey[:8]+strings.ToUpper(testKey[8:])) ||
+		!validObjectKey("files/0123456789ABCDEF") {
+		t.Fatal("valid canonical or legacy object key rejected")
+	}
+	for _, invalid := range []string{
+		"tuckbox/3d4071e7a4b34c06980161f4aca13052",
+		"tuckbox/{3d4071e7-a4b3-4c06-9801-61f4aca13052}",
+		"tuckbox/3d4071e7-a4b3-7c06-9801-61f4aca13052",
+		"tuckbox/3d4071e7-a4b3-4c06-7801-61f4aca13052",
+		"files/too-short",
+		"outside/3d4071e7-a4b3-4c06-9801-61f4aca13052",
+	} {
+		if validObjectKey(invalid) {
+			t.Errorf("invalid object key accepted: %q", invalid)
+		}
+	}
+	valid, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := string(valid[:len(valid)-1])
+	for _, body := range [][]byte{
+		[]byte(prefix + `,"exp":123}`),
+		[]byte(prefix + `,"unknown":"x"}`),
+		append([]byte(prefix+`,"unknown":"`), []byte{0xff, '"', '}'}...),
+	} {
+		if _, err := verifyToken(grantPayload(body), []byte(testSecret), c.Audience, node.now()); err == nil {
+			t.Error("invalid JSON grant was accepted")
+		}
+	}
+}
+
+func TestStrictEncryptedSourceJSON(t *testing.T) {
+	source := signedSource{Get: "https://get.example.com", Head: "https://head.example.com"}
+	if _, err := decryptSource(sealSource(source), []byte(testSecret)); err != nil {
+		t.Fatalf("valid encrypted source rejected: %v", err)
+	}
+	for _, raw := range [][]byte{
+		[]byte(`{"get":"https://get.example.com","head":"https://head.example.com","get":"https://duplicate.example.com"}`),
+		[]byte(`{"get":"https://get.example.com","head":"https://head.example.com","unknown":1}`),
+		[]byte{'{', '"', 'g', 'e', 't', '"', ':', '"', 0xff, '"', '}'},
+	} {
+		if _, err := decryptSource(sealRawSource(raw), []byte(testSecret)); err == nil {
+			t.Error("invalid encrypted source JSON was accepted")
+		}
+	}
 }
 
 func TestDownloadAndRanges(t *testing.T) {
