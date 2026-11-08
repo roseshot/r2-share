@@ -7,5 +7,5 @@ FROM scratch
 COPY --from=build /download-node /download-node
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 65532:65532
-EXPOSE 8080
+EXPOSE 8443
 ENTRYPOINT ["/download-node"]

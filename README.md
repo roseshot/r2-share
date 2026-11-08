@@ -421,9 +421,12 @@ configuration. To enable it, deploy one or more nodes on HTTPS domains and
 open **Admin → Download nodes**. Add each HTTPS origin, enter a shared secret
 of at least 32 characters or generate one using the browser's secure random
 generator, and save. Copy the secret to the `DOWNLOAD_NODE_SECRET` environment
-variable on every Go node. The Worker encrypts the shared configuration in D1
-using `APP_MASTER_KEY` and does not accept legacy download-node environment
-variables. Removing all nodes returns downloads to Worker streaming.
+variable on every Go node. Each node also requires `NODE_DOMAIN` (matching
+its Admin HTTPS origin) and readable `TLS_CERT_FILE` / `TLS_KEY_FILE` PEM
+files. The node serves HTTPS itself (default `:8443`), verifies the certificate
+at startup, rejects unrecognized TLS SNI, and returns HTTP 421 for mismatched
+request hosts. The Worker encrypts the shared configuration in D1 using
+`APP_MASTER_KEY`. Removing all nodes returns downloads to Worker streaming.
 
 After the Worker validates a share or admin session, it presigns short-lived S3
 GET/HEAD requests using credentials stored only in the Worker. GET downloads
@@ -436,12 +439,11 @@ hashed to distribute downloads consistently across up to 16 nodes; range
 resume for a file therefore selects the same node. Downloads support 206 and
 416; HEAD preflight and all previews remain directly on the Worker.
 
-Each Go node needs **read-only S3 GetObject credentials**, configured separately
-for the same Storage IDs as TuckBox Admin. Do not expose its storage secret
-config, HMAC secret, or signed URLs in logs. Put a TLS reverse proxy in front of
-the Go HTTP listener. **Use DNS-only (non-Cloudflare-proxied) node hostnames**
-to offload Cloudflare bandwidth; a Cloudflare-proxied download node still
-transits the CDN. There is no automatic health failover: monitor each node.
+Download nodes do not need S3 credentials. Keep their shared secret and TLS
+private key outside Git; mount the key read-only and configure certificate
+renewal. **Use DNS-only (non-Cloudflare-proxied) node hostnames** to offload
+Cloudflare bandwidth; a Cloudflare-proxied download node still transits the CDN.
+There is no automatic health failover: monitor each node.
 A signed grant can be reused until expiry (including briefly after revocation).
 See [Go node setup](download-node/README.md) for deployment and security notes.
 

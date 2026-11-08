@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,9 @@ import (
 
 type server struct {
 	secret     []byte
+	domain     string
+	hostname   string
+	tlsConfig  *tls.Config
 	httpClient *http.Client
 	now        func() time.Time
 	corsOrigin string
@@ -31,7 +35,15 @@ func (s *server) routes() http.Handler {
 		_, _ = io.WriteString(w, "ok\n")
 	})
 	mux.HandleFunc("/v1/download", s.download)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS == nil || !strings.EqualFold(r.TLS.ServerName, s.hostname) ||
+			!strings.EqualFold(r.Host, s.domain) {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "unrecognized download node domain", http.StatusMisdirectedRequest)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func parseRange(raw string, size int64) (string, string, int64, error) {
@@ -91,7 +103,7 @@ func (s *server) download(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Expose-Headers", "Accept-Ranges, Content-Disposition, Content-Range, Content-Length")
 		w.Header().Set("Vary", "Origin")
 	}
-	c, err := verifyToken(r.URL.Query().Get("token"), s.secret, r.Host, s.now())
+	c, err := verifyToken(r.URL.Query().Get("token"), s.secret, s.domain, s.now())
 	if err != nil {
 		http.Error(w, "invalid or expired download token", http.StatusForbidden)
 		return

@@ -57,7 +57,7 @@ func sealSource(source signedSource) string {
 
 func testNode(reply transportFunc) (*server, claims) {
 	now := time.Unix(1800000000, 0)
-	node := &server{secret: []byte(testSecret),
+	node := &server{secret: []byte(testSecret), domain: "download.example.com", hostname: "download.example.com",
 		httpClient: &http.Client{Transport: reply}, now: func() time.Time { return now }}
 	source := signedSource{
 		Get: testSignedURL("s3.us-west-004.backblazeb2.com", "private-backups", "us-west-004", "a", now),
@@ -244,6 +244,10 @@ func TestRangeValidationAndSignedBackends(t *testing.T) {
 
 func TestLoadServerWithoutBucketCredentials(t *testing.T) {
 	t.Setenv("DOWNLOAD_NODE_SECRET", testSecret)
+	t.Setenv("NODE_DOMAIN", "download.example.com")
+	certFile, keyFile, _ := testCertificateFiles(t, "download.example.com")
+	t.Setenv("TLS_CERT_FILE", certFile)
+	t.Setenv("TLS_KEY_FILE", keyFile)
 	t.Setenv("STORAGES_JSON", "no bucket credentials are configured")
 	node, err := loadServer()
 	if err != nil || node == nil {

@@ -133,7 +133,7 @@ export default function AdminDownloadNodes({ api }: { api: (path: string) => str
                 <Button type="button" variant="secondary" className="self-end" disabled={saving || !nodeUrl.trim() || nodes.length >= 16}
                   onClick={addNode}>Add node</Button>
               </div>
-              <p className="text-xs text-zinc-500">Nodes must use HTTPS and preserve the request Host header.</p>
+              <p className="text-xs text-zinc-500">Each node must load a TLS certificate and configure NODE_DOMAIN to match this HTTPS origin exactly, including any custom port.</p>
             </div>
             <div className="space-y-3 border-t border-zinc-200 pt-5 dark:border-white/10">
               <label className="block text-sm">

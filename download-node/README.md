@@ -34,21 +34,24 @@ continue through the Worker.
 
 ## Quick start
 
-1. Deploy the binary or Docker image to a VPS/server. Put it behind an **HTTPS
-   reverse proxy** that preserves the original HTTP `Host` header. Its own
-   listener is plain HTTP on port 8080 by default.
-2. On the Go server, set:
-   - `DOWNLOAD_NODE_SECRET`: **the same random secret** used by the Worker,
-     at least 32 characters (`openssl rand -hex 32`).
-   - `LISTEN_ADDR`: defaults to `:8080`.
-   - `CORS_ORIGIN`: optional, a single HTTPS origin for explicit cross-origin
-     clients. Normal browser downloads do not require this.
-3. In **TuckBox Admin → Download nodes**, add each HTTPS node origin.
-   Enter a shared secret (at least 32 characters) or select **Generate secret**,
-   then **Copy secret** and **Save download nodes**.
+1. Point a DNS record at each node and install a valid TLS certificate chain
+   and private key for its hostname. The Go node terminates HTTPS itself.
+2. On each Go node, configure:
+   - `NODE_DOMAIN`: its public hostname (for example, `dl1.example.com`).
+     If the Admin HTTPS origin uses a non-default port, include it here as
+     `dl1.example.com:8443`. This must match the HTTP `Host` exactly.
+   - `TLS_CERT_FILE` and `TLS_KEY_FILE`: readable PEM certificate-chain and
+     private-key paths. The node validates the certificate's hostname and
+     validity dates at startup.
+   - `LISTEN_ADDR`: TLS listen address, default `:8443`.
+   - `DOWNLOAD_NODE_SECRET`: the same secret configured in TuckBox Admin,
+     at least 32 characters.
+   - `CORS_ORIGIN`: optional HTTPS origin for cross-origin fetch clients.
+3. In **TuckBox Admin → Download nodes**, add each HTTPS node origin, then
+   enter a shared secret or select **Generate secret**. Copy it before saving.
 4. Set the same saved secret as `DOWNLOAD_NODE_SECRET` on **every Go node**.
-   Only the nodes use this environment variable; the Worker reads the encrypted
-   configuration from D1. Changing the secret requires updating every node.
+   The Worker reads the encrypted configuration from D1. Changing the secret
+   requires updating every node.
 
 No Worker download-node environment variables are required or supported.
 Bucket credentials remain exclusively in TuckBox's Worker-side storage settings.
@@ -69,12 +72,15 @@ Docker build and run:
 
 ```sh
 docker build -t tuckbox-download-node ./download-node
-docker run --rm -p 127.0.0.1:8080:8080 --env-file ./download-node/.env tuckbox-download-node
+docker run --rm -p 8443:8443 --env-file ./download-node/.env \
+  --mount type=bind,src="$(pwd)/certs",dst=/certs,readonly tuckbox-download-node
 ```
 
-Copy `.env.example` to `.env` on the server, replace placeholders, protect
-file permissions, and **never commit `.env`**. Check `GET /healthz` on the
-Go server from your reverse proxy/monitor.
+Copy `.env.example` to `.env` on the server, replace placeholders, and
+**never commit `.env`**. Mount certificates read-only and ensure the process
+user (UID 65532 in Docker) can read the private key. Check
+`https://<NODE_DOMAIN>/healthz` with the configured hostname and a trusted
+certificate. Do not send credentials or certificates to the Worker.
 
 ### Storage access
 
@@ -101,7 +107,7 @@ the same file on the same node. This is **distribution**, not active health
 balancing; a down node will make downloads assigned to it fail until the
 configuration is changed. Do not use Cloudflare-proxied/orange-cloud node
 hostnames if your goal is to move download egress off Cloudflare; instead use
-DNS-only hostnames pointed at the Go servers and terminate TLS there.
+DNS-only hostnames pointed at the Go servers. Each node terminates TLS.
 
 ### Security and operational notes
 
@@ -115,8 +121,11 @@ DNS-only hostnames pointed at the Go servers and terminate TLS there.
 - The node validates only known `tuckbox/<UUID v4>` or legacy
   `files/<16-character ID>` object keys. It never accepts arbitrary upstream
   URLs, and the bucket stays private.
-- Node `Host` must match the host in the signed grant; preserve it through
-  your TLS reverse proxy. Keep clocks synchronized using NTP.
+- `NODE_DOMAIN` is mandatory. The TLS handshake rejects absent or mismatched
+  SNI, and all HTTP paths (including `/healthz`) reject a mismatched `Host`
+  with HTTP 421. Plain HTTP is not served. The certificate must cover the
+  configured DNS hostname; direct-IP and unknown-host requests are rejected.
+  Keep clocks synchronized using NTP.
 - Keep the node's shared secret outside Git. Change it in Admin and update
   all nodes together. The Worker stores the secret encrypted in D1 and does
   not return it through the settings API. Storage credentials are never deployed

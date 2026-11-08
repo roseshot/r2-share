@@ -11,6 +11,14 @@ import (
 )
 
 func loadServer() (*server, error) {
+	hostname, domain, err := parseNodeDomain(os.Getenv("NODE_DOMAIN"))
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig, err := loadTLSConfig(hostname, os.Getenv("TLS_CERT_FILE"), os.Getenv("TLS_KEY_FILE"))
+	if err != nil {
+		return nil, err
+	}
 	secret := os.Getenv("DOWNLOAD_NODE_SECRET")
 	if len(secret) < 32 {
 		return nil, errors.New("DOWNLOAD_NODE_SECRET must be at least 32 characters")
@@ -28,7 +36,8 @@ func loadServer() (*server, error) {
 			return nil, errors.New("CORS_ORIGIN must be an HTTPS origin")
 		}
 	}
-	return &server{secret: []byte(secret), httpClient: client, now: time.Now, corsOrigin: cors}, nil
+	return &server{secret: []byte(secret), domain: domain, hostname: hostname,
+		tlsConfig: tlsConfig, httpClient: client, now: time.Now, corsOrigin: cors}, nil
 }
 
 func main() {
@@ -39,11 +48,11 @@ func main() {
 	}
 	address := os.Getenv("LISTEN_ADDR")
 	if address == "" {
-		address = ":8080"
+		address = ":8443"
 	}
-	httpServer := &http.Server{Addr: address, Handler: srv.routes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
-	slog.Info("TuckBox download node listening", "address", address)
-	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	httpServer := &http.Server{Addr: address, Handler: srv.routes(), TLSConfig: srv.tlsConfig, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	slog.Info("TuckBox download node listening with TLS", "address", address, "domain", srv.domain)
+	if err := httpServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
