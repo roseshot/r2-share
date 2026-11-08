@@ -137,8 +137,8 @@ describe("Dependabot auto-merge policy", () => {
     )].map(match => [match[1], match[2]]);
     expect(ecosystems).toEqual([
       ["npm", "/"],
-      ["gomod", "/download-node"],
-      ["docker", "/download-node"],
+      ["gomod", "/services/download-node"],
+      ["docker", "/services/download-node"],
       ["github-actions", "/"],
     ]);
     expect(config.match(/    commit-message:/g)).toHaveLength(4);

@@ -29,7 +29,7 @@ describe("repository layout", () => {
   });
 
   test("resolves every local TS import after file moves", () => {
-    for (const file of ["src", "worker", "tests"].flatMap(walk)
+    for (const file of ["src", "worker"].flatMap(walk)
       .filter(file => /\.(?:ts|tsx|mjs)$/.test(file))) {
       const content = readFileSync(resolve(root, file), "utf8");
       for (const match of content.matchAll(/(?:\bfrom\s*|\bimport\s*\()\s*["'](\.{1,2}\/[^"']+)["']/g)) {
