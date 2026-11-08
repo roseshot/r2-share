@@ -39,22 +39,22 @@ describe("repository conventions", () => {
   test("repository, package, Worker, and Go module names match TuckBox", () => {
     const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
     const worker = JSON.parse(readFileSync(resolve(root, "wrangler.jsonc"), "utf8"));
-    const goMod = readFileSync(resolve(root, "download-node/go.mod"), "utf8");
+    const goMod = readFileSync(resolve(root, "services/download-node/go.mod"), "utf8");
     const dependabotTest = readFileSync(resolve(root, "tests/dependabot-auto-merge.test.ts"), "utf8");
     expect(pkg.name).toBe("tuckbox");
     expect(worker.name).toBe("tuckbox");
-    expect(goMod).toMatch(/^module github\.com\/roseshot\/tuckbox\/download-node$/m);
+    expect(goMod).toMatch(/^module github\.com\/roseshot\/tuckbox\/services\/download-node$/m);
     expect(dependabotTest).toContain('const repository = "roseshot/tuckbox";');
   });
 
   test("public pages retain the TuckBox brand while admin can name storage providers", () => {
-    for (const path of ["index.html", "src/home.tsx", "src/share.tsx"]) {
+    for (const path of ["index.html", "src/pages/home.tsx", "src/pages/share.tsx"]) {
       const content = readFileSync(resolve(root, path), "utf8");
       expect(content, path).toContain("TuckBox");
       expect(content, path).not.toMatch(/R2 Share|Cloudflare|Backblaze/);
     }
-    const admin = readFileSync(resolve(root, "src/admin.tsx"), "utf8");
-    const storage = readFileSync(resolve(root, "src/admin-settings.tsx"), "utf8");
+    const admin = readFileSync(resolve(root, "src/pages/admin.tsx"), "utf8");
+    const storage = readFileSync(resolve(root, "src/features/admin/admin-settings.tsx"), "utf8");
     expect(admin).toContain("TuckBox");
     expect(admin).toContain("Storage ID");
     expect(storage).toContain("Cloudflare R2");
@@ -62,10 +62,10 @@ describe("repository conventions", () => {
   });
 
   test("shows the package version beside the admin logo without duplicating a version string", () => {
-    const admin = readFileSync(resolve(root, "src/admin.tsx"), "utf8");
+    const admin = readFileSync(resolve(root, "src/pages/admin.tsx"), "utf8");
     const { version } = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
     expect(version).toMatch(/^[0-9]+[.][0-9]+[.][0-9]+(?:[-+][A-Za-z0-9.-]+)?$/);
-    expect(admin).toContain('import { version as appVersion } from "../package.json"');
+    expect(admin).toContain('import { version as appVersion } from "../../package.json"');
     const header = admin.slice(admin.indexOf('<header className='));
     expect(header).toContain('src="/tuckbox-mark.svg"');
     const brand = header.indexOf('>TuckBox</p>');
@@ -79,14 +79,14 @@ describe("repository conventions", () => {
   });
 
   test("uses file sharing language without private or temporary product positioning", () => {
-    const home = readFileSync(resolve(root, "src/home.tsx"), "utf8");
-    const admin = readFileSync(resolve(root, "src/admin.tsx"), "utf8");
+    const home = readFileSync(resolve(root, "src/pages/home.tsx"), "utf8");
+    const admin = readFileSync(resolve(root, "src/pages/admin.tsx"), "utf8");
     const html = readFileSync(resolve(root, "index.html"), "utf8");
     expect(home).toContain("File sharing");
     expect(html).toContain("<title>TuckBox · File sharing</title>");
     expect(admin).toContain("File sharing dashboard");
     for (const [path, content] of [
-      ["src/home.tsx", home], ["src/admin.tsx", admin], ["index.html", html],
+      ["src/pages/home.tsx", home], ["src/pages/admin.tsx", admin], ["index.html", html],
     ] as const) {
       expect(content, path).not.toMatch(/\bprivate\b|\bprivately\b|\btemporary\b/i);
     }
@@ -96,7 +96,7 @@ describe("repository conventions", () => {
     const svg = readFileSync(resolve(root, "public/tuckbox-mark.svg"), "utf8");
     expect(svg).toContain('viewBox="0 0 48 48"');
     expect(svg).toContain('fill="#34d399"');
-    for (const path of ["src/home.tsx", "src/share.tsx", "src/admin.tsx"]) {
+    for (const path of ["src/pages/home.tsx", "src/pages/share.tsx", "src/pages/admin.tsx"]) {
       const page = readFileSync(resolve(root, path), "utf8");
       expect(page, path).toContain('src="/tuckbox-mark.svg"');
       expect(page, path).not.toContain("FileArchive");
@@ -108,16 +108,16 @@ describe("repository conventions", () => {
   });
 
   test("keeps appearance selection available throughout the interface", () => {
-    const theme = readFileSync(resolve(root, "src/theme.tsx"), "utf8");
+    const theme = readFileSync(resolve(root, "src/components/theme.tsx"), "utf8");
     expect(theme).toContain('aria-label="Appearance"');
     expect(theme).toContain('localStorage.setItem(storageKey, next)');
-    for (const path of ["src/home.tsx", "src/share.tsx", "src/admin.tsx"]) {
+    for (const path of ["src/pages/home.tsx", "src/pages/share.tsx", "src/pages/admin.tsx"]) {
       expect(readFileSync(resolve(root, path), "utf8"), path).toContain("<ThemeSwitcher");
     }
     const css = readFileSync(resolve(root, "src/style.css"), "utf8");
     expect(css).toContain('@custom-variant dark');
     expect(css).toContain(':root[data-theme="dark"]');
-    const admin = readFileSync(resolve(root, "src/admin.tsx"), "utf8");
+    const admin = readFileSync(resolve(root, "src/pages/admin.tsx"), "utf8");
     expect(admin).not.toContain("<footer");
   });
 
@@ -125,7 +125,7 @@ describe("repository conventions", () => {
     const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
     expect(packageJson.dependencies["@base-ui/react"]).toBeDefined();
     expect(packageJson.dependencies["@radix-ui/react-slot"]).toBeUndefined();
-    const ui = readFileSync(resolve(root, "src/ui.tsx"), "utf8");
+    const ui = readFileSync(resolve(root, "src/components/ui.tsx"), "utf8");
     expect(ui).toContain("@base-ui/react/button");
     expect(ui).toContain("@base-ui/react/input");
     expect(ui).toContain("@base-ui/react/select");

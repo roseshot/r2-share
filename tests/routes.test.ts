@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveSharePath, routeForPath } from "../src/routes";
+import { resolveSharePath, routeForPath } from "../src/lib/routes";
 
 describe("public and private page routing", () => {
   test("serves the public homepage at the root", () => {

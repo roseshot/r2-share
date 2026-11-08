@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { unzipSync, strFromU8 } from "fflate";
-import { archiveFolders } from "../src/folder-zip";
-import { clipboardUploads } from "../src/paste-upload";
-import { MAX_UPLOAD_BYTES } from "../src/upload-queue";
+import { archiveFolders } from "../src/features/uploads/folder-zip";
+import { clipboardUploads } from "../src/features/uploads/paste-upload";
+import { MAX_UPLOAD_BYTES } from "../src/features/uploads/upload-queue";
 
 const file = (name: string, content: string) => new File([content], name, { type: "text/plain" });
 

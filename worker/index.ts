@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { monitorUpload } from "./integrity";
 import { importRemoteFile, RemoteImportError, validateRemoteUrl } from "./url-import";
-import { previewFormat } from "../src/preview-types";
+import { previewFormat } from "../src/features/files/preview-types";
 import { parseByteRange } from "./ranges";
 import { redirectedDownload } from "./download-node";
 import { getCachedVirusTotalReport, processVirusTotalQueue } from "./virustotal";

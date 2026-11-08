@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 export function createTestDatabase(): D1Database {
   const database = new Database(":memory:");
-  database.exec(readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8"));
+  database.exec(readFileSync(new URL("../database/migrations/0001_initial.sql", import.meta.url), "utf8"));
 
   function prepare(sql: string, params: unknown[] = []) {
     const statement = database.prepare(sql);

@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Copy, Link2, LoaderCircle, Trash2 } from "lucide-react";
-import { Badge, Button, Card, Input, Select } from "./ui";
-import { ConfirmDialog } from "./confirm-dialog";
-import { successToast } from "./notifications";
-import { durations, jsonBody, requestJson } from "./lib";
+import { Badge, Button, Card, Input, Select } from "../../components/ui";
+import { ConfirmDialog } from "../../components/confirm-dialog";
+import { successToast } from "../../components/notifications";
+import { durations, jsonBody, requestJson } from "../../lib/api";
 
 type UploadPage = {
   id: string; label: string; storageId: string; expiresAt: string | null;

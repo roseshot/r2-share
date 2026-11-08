@@ -1,6 +1,6 @@
 # Operations and security
 
-[← README](../README.md) · [Deployment](deployment.md) · [User guide](usage.md) · [Go download node](../download-node/README.md)
+[← README](../README.md) · [Deployment](deployment.md) · [User guide](usage.md) · [Go download node](../services/download-node/README.md)
 
 TuckBox is a self-hosted file-sharing service, not a managed security product. Operators are responsible for bucket isolation, credentials, abuse prevention, uptime, backups, and local regulatory requirements.
 
@@ -72,7 +72,7 @@ The dashboard's **Storage used** data is the *last cleanup snapshot*, not a real
 4. Test that a recovered database's Storage IDs still point to the intended buckets and that protected shares decrypt correctly.
 5. Monitor the scheduled cron and storage availability after every deployment.
 
-The repository provides **one current D1 baseline** (`migrations/0001_initial.sql`) for new installations, not historical schema conversion. Older/partially upgraded databases are unsupported; a new code checkout cannot reconstruct missing metadata or deleted objects.
+The repository provides **one current D1 baseline** (`database/migrations/0001_initial.sql`) for new installations, not historical schema conversion. Older/partially upgraded databases are unsupported; a new code checkout cannot reconstruct missing metadata or deleted objects.
 
 ### Credential rotation
 
@@ -80,7 +80,7 @@ Rotate B2/R2/S3 credentials in **Object storage settings** without changing the 
 
 ## Optional Go download nodes
 
-[See the dedicated Go node guide](../download-node/README.md) for installation, certificates, Docker, and environment variables.
+[See the dedicated Go node guide](../services/download-node/README.md) for installation, certificates, Docker, and environment variables.
 
 Important operational distinctions:
 

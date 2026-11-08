@@ -5,7 +5,7 @@ const source = (file: string) => readFileSync(new URL("../" + file, import.meta.
 
 describe("public upload completion and invalid share navigation", () => {
   test("shows only a success confirmation once all public uploads complete", () => {
-    const page = source("src/public-upload.tsx");
+    const page = source("src/pages/public-upload.tsx");
     expect(page).toContain("const completed = !loading && uploaded.length > 0 && selected.length === 0 && !uploading && !error;");
     expect(page).toContain('{completed ? <div role="status" aria-label="Upload complete"');
     expect(page).toContain("<h1 className=\"text-2xl font-semibold\">Upload successful</h1>");
@@ -19,7 +19,7 @@ describe("public upload completion and invalid share navigation", () => {
   });
 
   test("shows only relevant upload information", () => {
-    const page = source("src/public-upload.tsx");
+    const page = source("src/pages/public-upload.tsx");
     expect(page).not.toContain(">Public upload</p>");
     expect(page).not.toContain("Upload files without signing in.");
     expect(page).not.toContain("No time limit");
@@ -33,8 +33,8 @@ describe("public upload completion and invalid share navigation", () => {
   });
 
   test("uses the share page for unknown IDs and redirects missing uploads", () => {
-    const uploader = source("src/public-upload.tsx");
-    const admin = source("src/admin-public-uploads.tsx");
+    const uploader = source("src/pages/public-upload.tsx");
+    const admin = source("src/features/admin/admin-public-uploads.tsx");
     const main = source("src/main.tsx");
     expect(uploader).toContain('reason instanceof RequestError && reason.status === 404');
     expect(uploader).toContain('window.location.replace("/")');
@@ -42,9 +42,9 @@ describe("public upload completion and invalid share navigation", () => {
     expect(admin).toContain('href={"/u/" + page.id}');
     expect(main).toContain('if (route === "not-found") window.location.replace("/")');
     const worker = source("worker/index.ts");
-    const routes = source("src/routes.ts");
+    const routes = source("src/lib/routes.ts");
     const client = source("src/main.tsx");
-    const share = source("src/share.tsx");
+    const share = source("src/pages/share.tsx");
     expect(worker).toContain('app.get("/:entry", async c =>');
     expect(worker).toContain("return serveHtml(c.req.raw, c.env);");
     const route = worker.slice(worker.indexOf('app.get("/:entry",'), worker.indexOf('app.get("/assets/*"'));

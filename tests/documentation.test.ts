@@ -9,7 +9,7 @@ const docs = [
   "docs/usage.md",
   "docs/operations.md",
   "docs/development.md",
-  "download-node/README.md",
+  "services/download-node/README.md",
 ];
 
 describe("documentation", () => {
@@ -44,7 +44,7 @@ describe("documentation", () => {
     const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
     const deployment = readFileSync(resolve(root, "docs/deployment.md"), "utf8");
     const development = readFileSync(resolve(root, "docs/development.md"), "utf8");
-    expect(deployment).toContain("migrations/0001_initial.sql");
+    expect(deployment).toContain("database/migrations/0001_initial.sql");
     expect(deployment).toContain("D1_DATABASE_NAME");
     expect(deployment).toContain("D1_DATABASE_ID");
     expect(deployment).toContain("APP_MASTER_KEY");

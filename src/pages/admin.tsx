@@ -4,20 +4,20 @@ import {
   FileUp, Link2, LoaderCircle, LockKeyhole, LogOut,
   ShieldAlert, ShieldCheck, Trash2, X
 } from "lucide-react";
-import { Badge, Button, Card, Input, Select, buttonStyles } from "./ui";
-import { version as appVersion } from "../package.json";
-import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile, type Mode } from "./lib";
-import { originalModificationDate } from "./file-info";
-import { ThemeSwitcher } from "./theme";
-import AdminSettings from "./admin-settings";
-import AdminDownloadNodes from "./admin-download-nodes";
-import AdminShares from "./admin-shares";
-import AdminPublicUploads from "./admin-public-uploads";
-import { ConfirmDialog } from "./confirm-dialog";
-import { successToast } from "./notifications";
-import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "./upload-queue";
-import { archiveFolders } from "./folder-zip";
-import { clipboardUploads, pasteIsEditing } from "./paste-upload";
+import { Badge, Button, Card, Input, Select, buttonStyles } from "../components/ui";
+import { version as appVersion } from "../../package.json";
+import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile, type Mode } from "../lib/api";
+import { originalModificationDate } from "../features/files/file-info";
+import { ThemeSwitcher } from "../components/theme";
+import AdminSettings from "../features/admin/admin-settings";
+import AdminDownloadNodes from "../features/admin/admin-download-nodes";
+import AdminShares from "../features/admin/admin-shares";
+import AdminPublicUploads from "../features/admin/admin-public-uploads";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { successToast } from "../components/notifications";
+import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "../features/uploads/upload-queue";
+import { archiveFolders } from "../features/uploads/folder-zip";
+import { clipboardUploads, pasteIsEditing } from "../features/uploads/paste-upload";
 
 const base = location.pathname;
 const api = (path: string) => base + "/api" + path;

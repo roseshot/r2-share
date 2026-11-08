@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Button, Card, Input, Select } from "./ui";
-import { ConfirmDialog } from "./confirm-dialog";
-import { successToast } from "./notifications";
-import type { StorageBackend } from "./lib";
+import { Button, Card, Input, Select } from "../../components/ui";
+import { ConfirmDialog } from "../../components/confirm-dialog";
+import { successToast } from "../../components/notifications";
+import type { StorageBackend } from "../../lib/api";
 
 type StorageSummary =
   | { id: string; backend: "b2"; bucket: string; region: string; keyId: string }

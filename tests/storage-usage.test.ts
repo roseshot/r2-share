@@ -25,7 +25,7 @@ describe("D1-backed per-storage usage", () => {
   });
 
   test("does not derive usage from the current file page or search filters", () => {
-    const admin = read("src/admin.tsx");
+    const admin = read("src/pages/admin.tsx");
     expect(admin).toContain("setStorageUsage(settings.storageUsage)");
     expect(admin).toContain('<section aria-label="Storage used"');
     expect(admin).toContain("storageUsage.map(usage =>");

@@ -62,7 +62,7 @@ Disable offloading by removing all nodes in Admin.
 Build and test locally:
 
 ```sh
-cd download-node
+cd services/download-node
 go test ./...
 go vet ./...
 go build -o tuckbox-download-node .
@@ -73,8 +73,8 @@ go build -o tuckbox-download-node .
 Docker build and run:
 
 ```sh
-docker build -t tuckbox-download-node ./download-node
-docker run --rm -p 8443:8443 --env-file ./download-node/.env \
+docker build -t tuckbox-download-node ./services/download-node
+docker run --rm -p 8443:8443 --env-file ./services/download-node/.env \
   --mount type=bind,src="$(pwd)/certs",dst=/certs,readonly tuckbox-download-node
 ```
 

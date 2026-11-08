@@ -50,7 +50,7 @@ describe("environment-injected D1 deployment", () => {
         binding: "DB",
         database_name: "my-d1",
         database_id: databaseId,
-        migrations_dir: "migrations",
+        migrations_dir: "database/migrations",
       }]);
     } finally {
       rmSync(workingDirectory, { recursive: true, force: true });
@@ -70,10 +70,10 @@ describe("environment-injected D1 deployment", () => {
     expect(config.triggers.crons).toEqual(["1 0 * * *"]);
     expect(config.secrets.required).toHaveLength(3);
     expect(config.vars).toBeUndefined();
-    const migrations = readdirSync(new URL("../migrations/", import.meta.url))
+    const migrations = readdirSync(new URL("../database/migrations/", import.meta.url))
       .filter(name => name.endsWith(".sql")).sort();
     expect(migrations).toEqual(["0001_initial.sql"]);
-    const schema = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
+    const schema = readFileSync(new URL("../database/migrations/0001_initial.sql", import.meta.url), "utf8");
     for (const table of [
       "app_settings", "files", "upload_sessions", "shares", "storage_usage",
       "public_upload_pages", "virustotal_queue", "virustotal_reports",
@@ -96,7 +96,7 @@ describe("environment-injected D1 deployment", () => {
     expect(scripts.dev).not.toContain("provision-app.mjs");
     expect(scripts.deploy).not.toContain("provision-app.mjs");
     expect(scripts.build).toContain("configure-d1.mjs");
-    const schema = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
+    const schema = readFileSync(new URL("../database/migrations/0001_initial.sql", import.meta.url), "utf8");
     expect(schema).not.toMatch(/DROP\s+TABLE|DELETE\s+FROM|storage_reset|import_progress/i);
     const worker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
     expect(worker).not.toContain("storageResetPending");

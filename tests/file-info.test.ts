@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { describeFileType, checksumAlgorithms, originalModificationDate } from "../src/file-info";
-import { readThemePreference, resolveTheme } from "../src/theme";
+import { describeFileType, checksumAlgorithms, originalModificationDate } from "../src/features/files/file-info";
+import { readThemePreference, resolveTheme } from "../src/components/theme";
 
 describe("file checksums and known formats", () => {
   test("displays only SHA-256 checksums", () => {

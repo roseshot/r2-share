@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Eye, LoaderCircle } from "lucide-react";
-import { Button } from "./ui";
+import { Button } from "../../components/ui";
 import { previewFormat } from "./preview-types";
-import type { Share } from "./lib";
+import type { Share } from "../../lib/api";
 
 export function FilePreview({ file, id, disabled = false }: { file: Share; id: string; disabled?: boolean }) {
   const format = previewFormat(file.filename ?? "", file.mime);

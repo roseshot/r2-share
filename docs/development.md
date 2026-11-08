@@ -8,7 +8,7 @@ This repository contains a Cloudflare Worker API, a React application, and an op
 
 - [Bun](https://bun.sh/docs/installation), with Vite, Wrangler and TypeScript dependencies installed from `package.json`.
 - Cloudflare credentials for live deployments; local development uses a local D1 database.
-- Go **1.27.3+** for the separate `download-node/` service, when changing or running it.
+- Go **1.27.3+** for the separate `services/download-node/` service, when changing or running it.
 
 ## Start the application locally
 
@@ -29,7 +29,7 @@ export D1_DATABASE_ID="<D1-database-UUID>"
 bun run dev
 ~~~
 
-The `dev` task generates `wrangler.generated.jsonc`, applies `migrations/0001_initial.sql` to **local D1** and starts Vite with the Cloudflare Workers plugin. Local data is independent of the remote production D1 database. Configure local object-storage destinations through the running administrator dashboard.
+The `dev` task generates `wrangler.generated.jsonc`, applies `database/migrations/0001_initial.sql` to **local D1** and starts Vite with the Cloudflare Workers plugin. Local data is independent of the remote production D1 database. Configure local object-storage destinations through the running administrator dashboard.
 
 `D1_DATABASE_NAME` and `D1_DATABASE_ID` are required even for compilation because the build generates the `DB` binding. The generated config is excluded from Git.
 
@@ -46,32 +46,41 @@ The build uses the D1 variables set above. To exercise a remote migration withou
 For the Go node:
 
 ~~~sh
-cd download-node
+cd services/download-node
 go test -race -count=1 ./...
 go vet ./...
 go build .
 docker build --file Dockerfile --tag tuckbox-download-node:local .
 ~~~
 
-See [Go download node](../download-node/README.md) for TLS, environment variables and Docker runtime configuration.
+See [Go download node](../services/download-node/README.md) for TLS, environment variables and Docker runtime configuration.
 
 ## Repository layout
 
 ~~~text
-src/                       React pages, file uploader, sharing UI, styles
-worker/                    Hono Worker routes, D1 storage, auth, S3 integrations
-migrations/0001_initial.sql  Current D1 schema baseline
-scripts/configure-d1.mjs   Generates ignored Wrangler D1 binding config
-download-node/             Standalone Go HTTPS download service and Dockerfile
-tests/                     Bun tests (including D1 fixture and configuration checks)
-.github/workflows/         CI and Dependabot merge workflow
-wrangler.jsonc             Worker service, assets, limits, secrets, schedule
-vite.config.ts             Vite + Cloudflare Workers build integration
+src/
+  main.tsx                Vite / React application entry
+  pages/                  Route-level UI (admin, home, sharing, guest upload)
+  components/             Reusable UI primitives, dialogs and theme
+  features/
+    admin/                Administrator settings and share controls
+    files/                Previews, checksums and file metadata
+    uploads/              Upload queue, clipboard and folder ZIP logic
+  lib/                    Shared frontend API types and route utilities
+worker/                   Hono Worker entry and server-side integrations
+database/migrations/      D1 schema baseline
+services/download-node/   Independent Go HTTPS download service + Dockerfile
+tests/                    Bun integration and regression tests
+docs/                     Deployment, usage, operations and development guides
+scripts/                  D1 binding generation and maintenance scripts
+.github/                  CI workflows and Dependabot configuration
+wrangler.jsonc            Worker deployment configuration
+vite.config.ts            Vite + Cloudflare Worker plugin
 ~~~
 
 ### Database conventions
 
-- D1 baseline: `migrations/0001_initial.sql` only, for fresh installations.
+- D1 baseline: `database/migrations/0001_initial.sql` only, for fresh installations.
 - File UUIDs and object paths: `tuckbox/<file-uuid>`; share IDs are independent short strings.
 - Older schema conversions, `files/<legacy-id>` paths, and 16-character old file IDs are not supported.
 - The test helper in `tests/d1-helper.ts` initializes the current schema directly.

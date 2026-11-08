@@ -22,6 +22,6 @@ base.d1_databases = [{
   binding: "DB",
   database_name: databaseName,
   database_id: databaseId,
-  migrations_dir: "migrations",
+  migrations_dir: "database/migrations",
 }];
 writeFileSync("wrangler.generated.jsonc", JSON.stringify(base, null, 2) + "\n");

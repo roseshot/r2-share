@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { sizeText } from "../src/lib";
+import { sizeText } from "../src/lib/api";
 import { createPlaceholderShare, generatePlaceholderShare, placeholderLease } from "../worker/placeholder-share";
 
 const id = "Kq8mH2_nP4";
@@ -125,7 +125,7 @@ describe("server-generated missing share metadata", () => {
   });
 
   test("does not expose a missing share ID through the download error message", () => {
-    const frontend = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const frontend = readFileSync(new URL("../src/pages/share.tsx", import.meta.url), "utf8");
     expect(frontend).toContain("Server overloaded. Please try again.");
     expect(frontend).not.toContain("This share link or file is no longer available.");
     expect(frontend).not.toContain("response.status === 404");
@@ -133,7 +133,7 @@ describe("server-generated missing share metadata", () => {
   });
 
   test("does not perform browser-side decoy generation or persist fake data", () => {
-    const frontend = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const frontend = readFileSync(new URL("../src/pages/share.tsx", import.meta.url), "utf8");
     const worker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
     expect(frontend).toContain('requestJson<Share>("/api/files/" + id)');
     expect(frontend).not.toContain("isPlaceholder");

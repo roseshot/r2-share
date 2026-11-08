@@ -3,13 +3,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { verificationInstructions } from "../src/file-checksums";
+import { verificationInstructions } from "../src/features/files/file-checksums";
 
 const abcDigest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
 describe("checksum display and platform instructions", () => {
   test("keeps the SHA-256 checksum copy button", () => {
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain("navigator.clipboard.writeText(value)");
     expect(source).toContain('aria-label="Copy SHA-256 checksum"');
     expect(source).toContain('aria-live="polite"');
@@ -17,7 +17,7 @@ describe("checksum display and platform instructions", () => {
   });
 
   test("keeps the command instructions collapsed by default", () => {
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain("<details className=");
     expect(source).not.toMatch(/<details[^>]+\sopen=/);
   });
@@ -47,7 +47,7 @@ describe("checksum display and platform instructions", () => {
     expect(commands[0].sha256).toContain("shasum -a 256 './owner'\\''s $file; name.txt'");
     expect(commands[1].sha256).toContain("sha256sum -- './owner'\\''s $file; name.txt'");
     expect(commands[2].sha256).toContain("'.\\owner''s $file; name.txt'");
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).not.toContain("python3");
     expect(source).not.toContain("py -3");
     expect(source).toContain("verificationInstructions(filename)");
@@ -74,7 +74,7 @@ describe("checksum display and platform instructions", () => {
   });
 
   test("preserves copy buttons and soft wraps long SHA-256 commands", () => {
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain('aria-label={"Copy " + platform + " SHA-256 command"}');
     expect(source).toContain('onClick={() => void copy(sha256, platform + " SHA-256 command")}');
     expect(source).toContain("whitespace-pre-wrap");
@@ -83,7 +83,7 @@ describe("checksum display and platform instructions", () => {
   });
 
   test("wraps share metadata and explains the modification date in an accessible tip", () => {
-    const source = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/pages/share.tsx", import.meta.url), "utf8");
     expect(source).toContain("const FileIcon =");
     for (const icon of ["FileImage", "FileAudio", "FileVideo", "Archive", "Link2Off", "CalendarClock"]) {
       expect(source).toContain(icon);
@@ -113,7 +113,7 @@ describe("checksum display and platform instructions", () => {
   });
 
   test("uses a hash icon for SHA-256 without duplicating icons or altering copy behavior", () => {
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain('import { Apple, Check, ChevronDown, ClipboardCopy, Hash, PanelsTopLeft, Terminal } from "lucide-react"');
     expect(source).toContain('<Hash size={17} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />');
     expect(source).not.toContain("<ShieldCheck");
@@ -122,8 +122,8 @@ describe("checksum display and platform instructions", () => {
   });
 
   test("uses SHA-256 as the sole checksum heading on the share page", () => {
-    const checksum = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
-    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const checksum = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
+    const share = readFileSync(new URL("../src/pages/share.tsx", import.meta.url), "utf8");
     expect(checksum).toContain('aria-label="SHA-256"');
     expect(checksum).toContain("SHA-256\n    </h2>");
     expect(checksum).not.toContain("File checksums");
@@ -133,13 +133,13 @@ describe("checksum display and platform instructions", () => {
   });
 
   test("removes the Windows version-support sentence from the instructions", () => {
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).not.toContain("Windows PowerShell 5.1 and PowerShell 7 are supported.");
     expect(source).toContain("Windows (PowerShell 5.1 / 7)");
   });
 
   test("single click and keyboard focus select the full command", () => {
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain("selectCommandText(element: HTMLElement)");
     expect(source).toContain("range.selectNodeContents(element)");
     expect(source).toContain("selection.removeAllRanges()");
@@ -152,7 +152,7 @@ describe("checksum display and platform instructions", () => {
   });
 
   test("shows platform commands without a redundant SHA-256 sublabel", () => {
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain("How to verify SHA-256");
     expect(source).toContain("{platform}");
     expect(source).toContain("{sha256}");
@@ -160,7 +160,7 @@ describe("checksum display and platform instructions", () => {
   });
 
   test("includes platform icons for macOS, Linux and Windows", () => {
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(source).toContain("Apple");
     expect(source).toContain("Terminal");
     expect(source).toContain("PanelsTopLeft");
@@ -172,7 +172,7 @@ describe("checksum display and platform instructions", () => {
   test("loads JetBrains Mono for checksum values and terminal commands", () => {
     const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
     const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
-    const source = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(html).toContain("fonts.googleapis.com/css2?family=JetBrains+Mono");
     expect(html).toContain("display=swap");
     expect(html).toContain("fonts.gstatic.com");
@@ -185,7 +185,7 @@ describe("checksum display and platform instructions", () => {
   test("uses sans-serif for interface text and monospace for code", () => {
     const styles = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
     expect(styles).toContain('--font-sans: "Inter", "SF Pro Display"');
-    const code = readFileSync(new URL("../src/file-checksums.tsx", import.meta.url), "utf8");
+    const code = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(code).toContain("font-mono");
   });
 });

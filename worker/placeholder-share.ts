@@ -1,4 +1,4 @@
-import type { Share } from "../src/lib";
+import type { Share } from "../src/lib/api";
 
 const pick = (items: readonly string[], value: number): string => items[value % items.length];
 

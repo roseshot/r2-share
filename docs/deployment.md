@@ -50,7 +50,7 @@ export D1_DATABASE_ID="<actual-database-UUID>"
 
 Both values are mandatory for the build and migration scripts. `scripts/configure-d1.mjs` writes the gitignored `wrangler.generated.jsonc` with binding `DB`; it does not modify the tracked `wrangler.jsonc`. You do not need to store the database UUID in Git.
 
-The only SQL file is `migrations/0001_initial.sql`, a baseline creating eight tables:
+The only SQL file is `database/migrations/0001_initial.sql`, a baseline creating eight tables:
 
 | Table | Purpose |
 | --- | --- |

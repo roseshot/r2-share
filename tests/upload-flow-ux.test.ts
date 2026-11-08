@@ -5,7 +5,7 @@ const source = (file: string) => readFileSync(new URL("../" + file, import.meta.
 
 describe("upload completion experience", () => {
   test("provides a persistent, copyable link and access code after upload", () => {
-    const admin = source("src/admin.tsx");
+    const admin = source("src/pages/admin.tsx");
     expect(admin).toContain("setUploadResults([...succeeded])");
     expect(admin).toContain("uploadResults.map(result =>");
     expect(admin).toContain("setSelected(failed)");
@@ -15,8 +15,8 @@ describe("upload completion experience", () => {
     expect(admin).toContain("Open link");
   });
   test("selects multiple files or folders and supports dropping recursive directory trees", () => {
-    const admin = source("src/admin.tsx");
-    const queue = source("src/upload-queue.ts");
+    const admin = source("src/pages/admin.tsx");
+    const queue = source("src/features/uploads/upload-queue.ts");
     expect(admin).toContain('id="upload-file"');
     expect(admin).toContain('id="upload-folder"');
     expect(admin).toContain('type="file" multiple');
@@ -28,7 +28,7 @@ describe("upload completion experience", () => {
   });
 
   test("uploads one file at a time and retains independent share links and errors", () => {
-    const admin = source("src/admin.tsx");
+    const admin = source("src/pages/admin.tsx");
     expect(admin).toContain("for (const [index, entry] of batch.entries())");
     expect(admin).toContain("filename: entry.filename, size: entry.file.size");
     expect(admin).toContain("xhr.send(entry.file)");
@@ -40,8 +40,8 @@ describe("upload completion experience", () => {
   });
 
   test("compresses folder selections but keeps individual files separate", () => {
-    const admin = source("src/admin.tsx");
-    const zip = source("src/folder-zip.ts");
+    const admin = source("src/pages/admin.tsx");
+    const zip = source("src/features/uploads/folder-zip.ts");
     expect(admin).toContain("await archiveFolders(selectedFiles(files))");
     expect(admin).toContain("addToQueue(await archiveFolders(entries))");
     expect(zip).toContain("zipSync(contents");
@@ -50,8 +50,8 @@ describe("upload completion experience", () => {
   });
 
   test("supports paste uploads without hijacking editable fields", () => {
-    const admin = source("src/admin.tsx");
-    const paste = source("src/paste-upload.ts");
+    const admin = source("src/pages/admin.tsx");
+    const paste = source("src/features/uploads/paste-upload.ts");
     expect(admin).toContain('window.addEventListener("paste", handlePaste)');
     expect(admin).toContain('pasteIsEditing(event.target)');
     expect(admin).toContain("clipboardUploads(event.clipboardData)");
@@ -60,7 +60,7 @@ describe("upload completion experience", () => {
   });
 
   test("keeps inline filename Save/Cancel but auto-saves file deletion when selected", () => {
-    const admin = source("src/admin.tsx");
+    const admin = source("src/pages/admin.tsx");
     const worker = source("worker/index.ts");
     const cards = admin.slice(admin.indexOf("{files.map(record =>"), admin.indexOf('<nav aria-label="File pages"'));
     expect(cards).toContain('editId === record.id && editKind === "name"');
@@ -95,7 +95,7 @@ describe("upload completion experience", () => {
   });
 
   test("hides the VirusTotal submit action immediately and on later admin list refreshes", () => {
-    const admin = source("src/admin.tsx");
+    const admin = source("src/pages/admin.tsx");
     const worker = source("worker/index.ts");
     const cards = admin.slice(admin.indexOf("{files.map(record =>"),
       admin.indexOf('<nav aria-label="File pages"'));
@@ -109,14 +109,14 @@ describe("upload completion experience", () => {
   });
 
   test("shows processing state without suggesting a completed upload", () => {
-    const admin = source("src/admin.tsx");
+    const admin = source("src/pages/admin.tsx");
     expect(admin).toContain("xhr.upload.onprogress");
     expect(admin).toContain("setProcessing(true)");
     expect(admin).toContain("Processing file…");
   });
   test("guides first-time users to the storage settings form", () => {
-    const admin = source("src/admin.tsx");
-    const settings = source("src/admin-settings.tsx");
+    const admin = source("src/pages/admin.tsx");
+    const settings = source("src/features/admin/admin-settings.tsx");
     expect(admin).toContain("Configure storage");
     expect(admin).toContain("scrollIntoView");
     expect(settings).toContain('id="object-storage-settings"');

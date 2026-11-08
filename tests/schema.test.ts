@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 
-const schema = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
+const schema = readFileSync(new URL("../database/migrations/0001_initial.sql", import.meta.url), "utf8");
 
 function database() {
   const db = new Database(":memory:");
@@ -13,7 +13,7 @@ function database() {
 
 describe("D1 database schema", () => {
   test("uses a single baseline without data backfills or upgrade scripts", () => {
-    expect(readdirSync(new URL("../migrations/", import.meta.url))
+    expect(readdirSync(new URL("../database/migrations/", import.meta.url))
       .filter(name => name.endsWith(".sql")).sort()).toEqual(["0001_initial.sql"]);
     expect(schema).not.toMatch(/ALTER\s+TABLE|INSERT\s+(?:OR\s+IGNORE\s+)?INTO|UPDATE\s+|DELETE\s+FROM|DROP\s+TABLE/i);
     const db = database();

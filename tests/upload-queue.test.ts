@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { appendUploads, droppedFiles, MAX_BATCH_FILES, MAX_UPLOAD_BYTES, selectedFiles,
-  validateUpload, type DroppedEntry, type UploadEntry } from "../src/upload-queue";
+  validateUpload, type DroppedEntry, type UploadEntry } from "../src/features/uploads/upload-queue";
 
 const makeFile = (name: string, size = 4) =>
   new File([new Uint8Array(size)], name, { lastModified: 1234 });

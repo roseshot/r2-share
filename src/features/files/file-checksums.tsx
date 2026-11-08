@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Apple, Check, ChevronDown, ClipboardCopy, Hash, PanelsTopLeft, Terminal } from "lucide-react";
-import { Button } from "./ui";
-import type { FileChecksums } from "./lib";
+import { Button } from "../../components/ui";
+import type { FileChecksums } from "../../lib/api";
 
 /** Single-quoted paths prevent filenames from running shell commands. */
 export function quotePosixPath(path: string): string {

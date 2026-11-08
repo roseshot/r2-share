@@ -116,7 +116,7 @@ The public share page checks authorized **HEAD** availability before navigating 
 
 When a preview cannot load, the page offers a download fallback. Protected access and expiration apply equally to normal GET, HEAD and range requests.
 
-By default, the Worker streams bytes from the selected private B2, R2 or S3 object. An administrator can optionally configure **independent Go HTTPS download nodes**: authorized GETs then receive a short-lived signed 307 redirect, while HEAD checks, previews, uploads and admin requests remain on the Worker. See [Go download node](../download-node/README.md).
+By default, the Worker streams bytes from the selected private B2, R2 or S3 object. An administrator can optionally configure **independent Go HTTPS download nodes**: authorized GETs then receive a short-lived signed 307 redirect, while HEAD checks, previews, uploads and admin requests remain on the Worker. See [Go download node](../services/download-node/README.md).
 
 ## VirusTotal reputation and consent
 

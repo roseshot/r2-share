@@ -59,7 +59,7 @@ export D1_DATABASE_ID="<your-D1-database-UUID>"
 
 These are **build/deploy environment variables**, not Worker runtime secrets. `scripts/configure-d1.mjs` generates the ignored `wrangler.generated.jsonc` with the D1 binding named `DB`. Never commit the generated file with a real database ID.
 
-**New installations require a new D1 database.** The only SQL file, `migrations/0001_initial.sql`, creates the complete current schema; TuckBox does not include older-schema upgrade scripts.
+**New installations require a new D1 database.** The only SQL file, `database/migrations/0001_initial.sql`, creates the complete current schema; TuckBox does not include older-schema upgrade scripts.
 
 ### 3. Configure required Worker secrets
 
@@ -119,7 +119,7 @@ Detailed limits, workflows, and privacy behavior are in **[User guide](docs/usag
 | [User guide](docs/usage.md) | Uploads, share links, public upload pages, VirusTotal, interface behavior |
 | [Operations & security](docs/operations.md) | Access boundaries, cleanup, quotas, backups, monitoring, threat considerations |
 | [Development](docs/development.md) | Local setup, commands, repository layout, CI and Dependabot |
-| [Go download node](download-node/README.md) | Optional TLS download offload, Docker, configuration and security |
+| [Go download node](services/download-node/README.md) | Optional TLS download offload, Docker, configuration and security |
 
 ## Local development
 
@@ -148,7 +148,7 @@ See [Operations & security](docs/operations.md) before exposing TuckBox to the i
 
 ## Contributing and support
 
-Found a bug or have a feature request? [Open a GitHub issue](https://github.com/roseshot/tuckbox/issues). For code changes, run `bun run typecheck`, `bun test`, and `bun run build`; for Go changes run `go test -race ./...` and `go vet ./...` in `download-node/`. Source, comments, UI strings, and documentation are written in English.
+Found a bug or have a feature request? [Open a GitHub issue](https://github.com/roseshot/tuckbox/issues). For code changes, run `bun run typecheck`, `bun test`, and `bun run build`; for Go changes run `go test -race ./...` and `go vet ./...` in `services/download-node/`. Source, comments, UI strings, and documentation are written in English.
 
 ## License
 

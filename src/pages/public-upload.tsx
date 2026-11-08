@@ -1,11 +1,11 @@
 import { useEffect, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import { CircleCheckBig, FileUp, FolderOpen, LoaderCircle, X } from "lucide-react";
-import { Button, Card } from "./ui";
-import { ThemeSwitcher } from "./theme";
-import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "./upload-queue";
-import { archiveFolders } from "./folder-zip";
-import { clipboardUploads, pasteIsEditing } from "./paste-upload";
-import { RequestError, jsonBody, requestJson, sizeText } from "./lib";
+import { Button, Card } from "../components/ui";
+import { ThemeSwitcher } from "../components/theme";
+import { appendUploads, droppedFiles, selectedFiles, type UploadEntry } from "../features/uploads/upload-queue";
+import { archiveFolders } from "../features/uploads/folder-zip";
+import { clipboardUploads, pasteIsEditing } from "../features/uploads/paste-upload";
+import { RequestError, jsonBody, requestJson, sizeText } from "../lib/api";
 
 type PageInfo = {
   label: string; active: boolean; expired: boolean; expiresAt: string | null;

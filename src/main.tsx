@@ -1,13 +1,13 @@
 import { StrictMode, Suspense, lazy, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { routeForPath, type Route } from "./routes";
-import { Notifications } from "./notifications";
+import { routeForPath, type Route } from "./lib/routes";
+import { Notifications } from "./components/notifications";
 import "./style.css";
 
-const Home = lazy(() => import("./home"));
-const Admin = lazy(() => import("./admin"));
-const SharePage = lazy(() => import("./share"));
-const PublicUploadPage = lazy(() => import("./public-upload"));
+const Home = lazy(() => import("./pages/home"));
+const Admin = lazy(() => import("./pages/admin"));
+const SharePage = lazy(() => import("./pages/share"));
+const PublicUploadPage = lazy(() => import("./pages/public-upload"));
 
 const initialRoute = routeForPath(location.pathname);
 const needsAdminCheck = initialRoute === "share"; // Probe every single-segment path: admin entries can have any length.

@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { Badge, Button, Input, Select } from "./ui";
-import { ConfirmDialog } from "./confirm-dialog";
-import { successToast } from "./notifications";
-import { durations, jsonBody, requestJson, timeText, type ManagedShare, type Mode } from "./lib";
+import { Badge, Button, Input, Select } from "../../components/ui";
+import { ConfirmDialog } from "../../components/confirm-dialog";
+import { successToast } from "../../components/notifications";
+import { durations, jsonBody, requestJson, timeText, type ManagedShare, type Mode } from "../../lib/api";
 
 export default function AdminShares({ fileId, shares, api, onSaved }: {
   fileId: string;

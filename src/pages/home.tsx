@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
-import { Button, Input } from "./ui";
-import { resolveSharePath } from "./routes";
-import { ThemeSwitcher } from "./theme";
+import { Button, Input } from "../components/ui";
+import { resolveSharePath } from "../lib/routes";
+import { ThemeSwitcher } from "../components/theme";
 
 export default function Home() {
   const [link, setLink] = useState("");

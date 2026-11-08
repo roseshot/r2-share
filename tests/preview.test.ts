@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { isArchiveFile, previewFormat } from "../src/preview-types";
+import { isArchiveFile, previewFormat } from "../src/features/files/preview-types";
 
 describe("safe file format selection", () => {
   test("places cached VirusTotal results immediately below File preview, above SHA-256", () => {
-    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const share = readFileSync(new URL("../src/pages/share.tsx", import.meta.url), "utf8");
     const preview = share.indexOf("<FilePreview ");
     const virusTotal = share.indexOf('aria-label="VirusTotal reputation"');
     const sha256 = share.indexOf("<FileChecksums ");
@@ -19,7 +19,7 @@ describe("safe file format selection", () => {
   });
 
   test("uses a generic server overloaded message for public download errors", () => {
-    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const share = readFileSync(new URL("../src/pages/share.tsx", import.meta.url), "utf8");
     expect(share).toContain("Server overloaded. Please try again.");
     expect(share).not.toContain("Download unavailable. Please try again.");
     expect(share).toContain("Access expired. Enter the access code again.");
@@ -59,7 +59,7 @@ describe("safe file format selection", () => {
   });
 
   test("loads preview content on first open and hides it without unmounting", () => {
-    const source = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-preview.tsx", import.meta.url), "utf8");
     expect(source).toContain("const [activated, setActivated] = useState(false)");
     expect(source).toContain("setActivated(true)");
     expect(source).toContain('activated && <div id="preview-details" hidden={!opened}');
@@ -69,7 +69,7 @@ describe("safe file format selection", () => {
   });
 
   test("reuses successful text previews and lets failed previews retry", () => {
-    const source = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-preview.tsx", import.meta.url), "utf8");
     expect(source).toContain('if (!activated || format?.kind !== "text" || text !== null || error) return;');
     expect(source).toContain('if (!controller.signal.aborted) setText(content.slice(0, 200000))');
     expect(source).toContain('[activated, format?.kind, file.size, previewURL, text, error]');
@@ -79,8 +79,8 @@ describe("safe file format selection", () => {
   });
 
   test("pauses playing audio and video when collapsed and resets on a different file", () => {
-    const source = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
-    const share = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/features/files/file-preview.tsx", import.meta.url), "utf8");
+    const share = readFileSync(new URL("../src/pages/share.tsx", import.meta.url), "utf8");
     expect(source).toContain("audioRef.current?.pause()");
     expect(source).toContain("videoRef.current?.pause()");
     expect(source).toContain("<audio ref={audioRef}");
@@ -89,7 +89,7 @@ describe("safe file format selection", () => {
   });
 
   test("archive preview code never downloads or parses archives", () => {
-    const component = readFileSync(new URL("../src/file-preview.tsx", import.meta.url), "utf8");
+    const component = readFileSync(new URL("../src/features/files/file-preview.tsx", import.meta.url), "utf8");
     expect(component).not.toContain('from "./archive"');
     expect(component).not.toContain('fetch("/api/files/" + id + "/download"');
     expect(component).toContain('href={"/api/files/" + id + "/download"}');

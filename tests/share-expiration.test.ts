@@ -387,7 +387,7 @@ describe("independent file and share expiration", () => {
     expect(await result.json()).toEqual({
       id: shareId, filename: "private-document.txt", size: 6, mime: "text/plain", mode: "public",
     });
-    const sharePage = readFileSync(new URL("../src/share.tsx", import.meta.url), "utf8");
+    const sharePage = readFileSync(new URL("../src/pages/share.tsx", import.meta.url), "utf8");
     expect(sharePage).not.toContain("timeText");
     expect(sharePage).not.toContain("expiresAt");
     expect(sharePage).not.toContain("remaining");

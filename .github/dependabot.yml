@@ -13,7 +13,7 @@ updates:
       include: "scope"
 
   - package-ecosystem: "gomod"
-    directory: "/download-node"
+    directory: "/services/download-node"
     schedule:
       interval: "weekly"
       day: "thursday"
@@ -24,7 +24,7 @@ updates:
       include: "scope"
 
   - package-ecosystem: "docker"
-    directory: "/download-node"
+    directory: "/services/download-node"
     schedule:
       interval: "weekly"
       day: "thursday"

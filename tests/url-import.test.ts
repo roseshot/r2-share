@@ -235,7 +235,7 @@ describe("administrator remote URL import", () => {
       }, body: JSON.stringify({ ...options, url: "http://localhost/file" }),
     });
     expect(malformed.status).toBe(400);
-    const source = readFileSync(new URL("../src/public-upload.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/pages/public-upload.tsx", import.meta.url), "utf8");
     expect(source).not.toContain("Import from URL");
     expect(source).not.toContain("/import-url");
     const worker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");

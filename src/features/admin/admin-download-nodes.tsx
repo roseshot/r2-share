@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Button, Card, Input } from "./ui";
-import { successToast } from "./notifications";
+import { Button, Card, Input } from "../../components/ui";
+import { successToast } from "../../components/notifications";
 
 interface DownloadNodeSettings {
   downloadNodes: string[];

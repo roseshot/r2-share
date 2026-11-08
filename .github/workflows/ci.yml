@@ -29,12 +29,12 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: download-node
+        working-directory: services/download-node
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: download-node/go.mod
+          go-version-file: services/download-node/go.mod
           cache: false
       - name: Test Go node
         run: go test -race -count=1 ./...

@@ -1,13 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Archive, ArrowDownToLine, CalendarClock, FileAudio, FileImage, FileText, FileType, FileVideo, HardDrive, Info, KeyRound, Link2Off, ShieldAlert, ExternalLink } from "lucide-react";
 import { Popover } from "@base-ui/react/popover";
-import { Button, Card, Input } from "./ui";
-import { jsonBody, requestJson, sizeText, type Share } from "./lib";
-import { describeFileType } from "./file-info";
-import { FileChecksums } from "./file-checksums";
-import { ThemeSwitcher } from "./theme";
-import { FilePreview } from "./file-preview";
-import { isArchiveFile, previewFormat } from "./preview-types";
+import { Button, Card, Input } from "../components/ui";
+import { jsonBody, requestJson, sizeText, type Share } from "../lib/api";
+import { describeFileType } from "../features/files/file-info";
+import { FileChecksums } from "../features/files/file-checksums";
+import { ThemeSwitcher } from "../components/theme";
+import { FilePreview } from "../features/files/file-preview";
+import { isArchiveFile, previewFormat } from "../features/files/preview-types";
 
 export default function SharePage() {
   const id = location.pathname.slice(1);
