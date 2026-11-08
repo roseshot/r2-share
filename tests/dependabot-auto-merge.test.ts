@@ -137,9 +137,8 @@ describe("Dependabot auto-merge policy", () => {
       ["github-actions", "/"],
     ]);
     expect(config.match(/    commit-message:/g)).toHaveLength(4);
-    expect(config).toContain('dependency-name: "vite"');
-    expect(config).toContain('dependency-name: "@vitejs/plugin-react"');
-    expect(config.match(/update-types: \["version-update:semver-major"\]/g)).toHaveLength(2);
+    expect(config).not.toMatch(/^\s*ignore:/m);
+    expect(config).not.toContain("version-update:semver-major");
   });
 
   test("workflow runs after CI rather than with a privileged pull_request_target", () => {

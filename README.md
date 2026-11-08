@@ -398,7 +398,7 @@ If you instead use `bun run deploy` as the Cloudflare **deploy command**, that i
 
 ## Dependency updates
 
-`.github/dependabot.yml` schedules npm, Go modules, download-node Docker images, and GitHub Actions checks every **Thursday at 01:00 UTC**. The `CI` workflow validates PRs and builds the Go node Docker image. Vite and `@vitejs/plugin-react` major updates are excluded from automated version PRs until their incompatible build changes can be migrated together.
+`.github/dependabot.yml` schedules npm, Go modules, download-node Docker images, and GitHub Actions checks every **Thursday at 01:00 UTC**. The `CI` workflow validates PRs and builds the Go node Docker image. Vite 8 and `@vitejs/plugin-react` 6 are upgraded together; future major updates still require manual review and successful CI.
 
 After successful pull-request CI, `.github/workflows/dependabot-auto-merge.yml` evaluates Dependabot metadata before merging. The policy:
 
