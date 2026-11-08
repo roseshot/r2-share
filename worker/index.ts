@@ -262,7 +262,38 @@ app.get("/:entry/api/settings", async c => {
     storages: (settings?.storages ?? []).map(publicStorage),
     storageUsage: await getStorageUsage(c.env, (settings?.storages ?? []).map(storage => storage.id)),
     virusTotalEnabled: !!settings?.virusTotalApiKey,
+    downloadNodes: c.env.DOWNLOAD_NODES
+      ? c.env.DOWNLOAD_NODES.split(",").map(node => node.trim()) : [],
+    downloadNodeSecretConfigured: !!c.env.DOWNLOAD_NODE_SECRET && c.env.DOWNLOAD_NODE_SECRET.length >= 32,
   });
+});
+
+app.patch("/:entry/api/settings/download-nodes", async c => {
+  if (!sameOrigin(c.req.raw)) return jsonError("Invalid request origin", 403);
+  const body = await readJson<Record<string, unknown>>(c.req.raw);
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).some(key => key !== "nodes" && key !== "secret") ||
+      !Array.isArray(body.nodes) ||
+      (body.secret !== undefined && typeof body.secret !== "string")) {
+    return jsonError("Invalid download node configuration");
+  }
+  const current = await readAppSettings(c.env) ?? { storages: [] };
+  const secret = body.secret || current.downloadNodeSecret;
+  const updated: AppSettings = {
+    ...current,
+    downloadNodes: body.nodes as string[],
+    ...(body.secret ? { downloadNodeSecret: body.secret } : {}),
+  };
+  try {
+    validateSettings(updated);
+    if (updated.downloadNodes!.length && (!secret || secret.length < 32)) {
+      throw new Error("A shared secret of at least 32 characters is required");
+    }
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Invalid download node configuration");
+  }
+  await saveAppSettings(c.env, updated);
+  return c.json({ ok: true });
 });
 
 app.patch("/:entry/api/settings", async c => {

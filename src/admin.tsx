@@ -10,6 +10,7 @@ import { durations, jsonBody, requestJson, sizeText, timeText, type ManagedFile,
 import { originalModificationDate } from "./file-info";
 import { ThemeSwitcher } from "./theme";
 import AdminSettings from "./admin-settings";
+import AdminDownloadNodes from "./admin-download-nodes";
 import AdminShares from "./admin-shares";
 import AdminPublicUploads from "./admin-public-uploads";
 import { ConfirmDialog } from "./confirm-dialog";
@@ -879,6 +880,7 @@ export default function Admin() {
       </section>
       <AdminPublicUploads api={api} storageIds={storageIds} />
       <AdminSettings api={api} onSaved={() => void refresh()} />
+      <AdminDownloadNodes api={api} />
       <ConfirmDialog open={vtUploadFile !== null}
         onOpenChange={open => { if (!open) { setVtUploadFile(null); setVtUploadError(""); } }}
         title="Authorize VirusTotal file upload?"

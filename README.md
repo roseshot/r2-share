@@ -417,15 +417,14 @@ the authorized Worker streams byte ranges from B2/R2/AWS S3 as before.
 
 An independently deployable **Go 1.23 download node** lives in
 [download-node/](download-node/README.md), including a Dockerfile and detailed
-configuration. To enable it, deploy one or more nodes on HTTPS domains, assign
-the **same** 32+ character `DOWNLOAD_NODE_SECRET` in the Worker and nodes, and
-set the Worker's optional `DOWNLOAD_NODES` secret to a comma-separated list:
+configuration. To enable it, deploy one or more nodes on HTTPS domains and
+open **Admin → Download nodes**. Add each HTTPS origin, enter a shared secret
+of at least 32 characters or generate one using the browser's secure random
+generator, and save. Copy the secret to the `DOWNLOAD_NODE_SECRET` environment
+variable on every Go node. The Worker encrypts the shared configuration in D1
+using `APP_MASTER_KEY` and does not accept legacy download-node environment
+variables. Removing all nodes returns downloads to Worker streaming.
 
-```text
-DOWNLOAD_NODES=https://dl1.example.com,https://dl2.example.com
-```
-
-Both values are **optional**, so existing deployments work without changes.
 After the Worker validates a share or admin session, it presigns short-lived S3
 GET/HEAD requests using credentials stored only in the Worker. GET downloads
 receive a **307 redirect with an HMAC-signed, at-most-90-second grant** containing

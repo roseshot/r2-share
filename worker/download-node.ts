@@ -44,29 +44,35 @@ async function presignedSource(env: Bindings, storageId: string, key: string, tt
   return { get: get.url, head: head.url };
 }
 
+export function parseDownloadNodeOrigins(entries: string[]): URL[] {
+  if (!Array.isArray(entries) || entries.length > maxNodes) {
+    throw new Error("Download nodes must be a list of at most 16 HTTPS origins");
+  }
+  const seen = new Set<string>();
+  return entries.map(value => {
+    let url: URL;
+    if (typeof value !== "string" || !value || value !== value.trim()) {
+      throw new Error("Invalid download node endpoint");
+    }
+    try { url = new URL(value); }
+    catch { throw new Error("Invalid download node endpoint"); }
+    if (url.protocol !== "https:" || url.username || url.password ||
+        url.pathname !== "/" || url.search || url.hash || !url.hostname ||
+        seen.has(url.host)) {
+      throw new Error("Download nodes must contain unique HTTPS origins without paths");
+    }
+    seen.add(url.host);
+    return url;
+  });
+}
+
 export function configuredDownloadNodes(env: Bindings): URL[] {
   const raw = env.DOWNLOAD_NODES?.trim() ?? "";
   if (!raw) return [];
   if (!env.DOWNLOAD_NODE_SECRET || env.DOWNLOAD_NODE_SECRET.length < 32) {
     throw new Error("DOWNLOAD_NODE_SECRET must be at least 32 characters");
   }
-  const entries = raw.split(",").map(value => value.trim());
-  if (entries.length > maxNodes || entries.some(value => !value)) {
-    throw new Error("Invalid DOWNLOAD_NODES list");
-  }
-  const seen = new Set<string>();
-  return entries.map(value => {
-    let url: URL;
-    try { url = new URL(value); }
-    catch { throw new Error("Invalid DOWNLOAD_NODES endpoint"); }
-    if (url.protocol !== "https:" || url.username || url.password ||
-        url.pathname !== "/" || url.search || url.hash || !url.hostname ||
-        seen.has(url.host)) {
-      throw new Error("DOWNLOAD_NODES must contain unique HTTPS origins without paths");
-    }
-    seen.add(url.host);
-    return url;
-  });
+  return parseDownloadNodeOrigins(raw.split(",").map(value => value.trim()));
 }
 
 /** Sticky by File ID, so resumed ranges use the same node after new authorization. */

@@ -29,8 +29,8 @@ Browser -- GET /api/files/<Share ID>/download --> Cloudflare Worker
 
 Only **GET downloads** are offloaded. Share metadata, access-code unlocks,
 **HEAD preflight**, public or admin uploads, file previews, and administrative
-actions remain on the Worker. If `DOWNLOAD_NODES` is omitted, the current Worker
-download path is unchanged.
+actions remain on the Worker. Without configured download nodes, downloads
+continue through the Worker.
 
 ## Quick start
 
@@ -43,21 +43,16 @@ download path is unchanged.
    - `LISTEN_ADDR`: defaults to `:8080`.
    - `CORS_ORIGIN`: optional, a single HTTPS origin for explicit cross-origin
      clients. Normal browser downloads do not require this.
-3. On the Cloudflare Worker, configure **optional secrets**:
-   `DOWNLOAD_NODE_SECRET` and `DOWNLOAD_NODES`. Example:
+3. In **TuckBox Admin → Download nodes**, add each HTTPS node origin.
+   Enter a shared secret (at least 32 characters) or select **Generate secret**,
+   then **Copy secret** and **Save download nodes**.
+4. Set the same saved secret as `DOWNLOAD_NODE_SECRET` on **every Go node**.
+   Only the nodes use this environment variable; the Worker reads the encrypted
+   configuration from D1. Changing the secret requires updating every node.
 
-   ```sh
-   # Enter the SAME value as on the Go server when prompted:
-   bunx wrangler secret put DOWNLOAD_NODE_SECRET
-   # Enter: https://dl1.example.com,https://dl2.example.com
-   bunx wrangler secret put DOWNLOAD_NODES
-   bun run deploy
-   ```
-
-   Configure secrets for the deployed Worker used by the project; if your
-   setup uses a different Wrangler config, specify the corresponding config.
-   All nodes must use the same secret. Bucket credentials remain exclusively
-   in TuckBox's existing Worker-side storage configuration.
+No Worker download-node environment variables are required or supported.
+Bucket credentials remain exclusively in TuckBox's Worker-side storage settings.
+Disable offloading by removing all nodes in Admin.
 
 Build and test locally:
 
@@ -94,14 +89,13 @@ downloads (HTTP 206). Invalid or multipart ranges return 416. Upstream HTTP
 status, byte count, and `Content-Range` are verified before responding.
 
 The Go node does not read `STORAGES_JSON`, S3 access key IDs, application keys,
-or secret access keys. Remove any legacy storage credentials from its environment
-and redeploy the Worker and all nodes together, as older grants are incompatible
-with the new encrypted source format.
+or secret access keys. Configure only the shared download secret and the node's
+listener settings.
 
 ### Multiple nodes / traffic steering
 
-`DOWNLOAD_NODES` is a comma-separated set of **HTTPS origins** (maximum 16,
-no paths, query strings or embedded credentials). The Worker selects a node
+The Admin Download nodes section accepts up to 16 unique **HTTPS origins**
+(no paths, query strings or embedded credentials). The Worker selects a node
 using a stable hash of the **File ID**, keeping new range/resume requests for
 the same file on the same node. This is **distribution**, not active health
 balancing; a down node will make downloads assigned to it fail until the
@@ -123,8 +117,9 @@ DNS-only hostnames pointed at the Go servers and terminate TLS there.
   URLs, and the bucket stays private.
 - Node `Host` must match the host in the signed grant; preserve it through
   your TLS reverse proxy. Keep clocks synchronized using NTP.
-- Keep the node's shared secret outside Git. Rotate the same secret on all
-  nodes and the Worker together. Storage credentials are never deployed
+- Keep the node's shared secret outside Git. Change it in Admin and update
+  all nodes together. The Worker stores the secret encrypted in D1 and does
+  not return it through the settings API. Storage credentials are never deployed
   to the Go nodes.
 - There is no automatic failover, rate limiting, or bandwidth accounting.
   Monitor node health, outbound bandwidth, response latency and S3 costs.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { encryptAppSettings, decryptAppSettings, readAppSettings, deriveRuntimeKeys } from "../worker/app-config";
+import { encryptAppSettings, decryptAppSettings, readAppSettings, deriveRuntimeKeys, resolveBindings } from "../worker/app-config";
 import { b64, readToken, signToken } from "../worker/crypto";
 import { bindObjectStore } from "../worker/object-store";
 import type { Bindings, StorageConfig } from "../worker/model";
@@ -105,7 +105,8 @@ describe("encrypted storage configurations", () => {
     const app = fixture();
     const cookie = await app.login();
     const empty = await app.request("/private/api/settings", { headers: { Cookie: cookie } });
-    expect(await empty.json()).toEqual({ storages: [], storageUsage: [], virusTotalEnabled: false });
+    expect(await empty.json()).toEqual({ storages: [], storageUsage: [], virusTotalEnabled: false,
+      downloadNodes: [], downloadNodeSecretConfigured: false });
     for (const storage of [b2, b2Other, r2, r2Other, s3, s3Other]) {
       const response = await app.post("/settings/storages", storage, cookie);
       expect(response.status).toBe(201);
@@ -185,6 +186,81 @@ describe("encrypted storage configurations", () => {
       { accountId: "a".repeat(32) }, cookie, "PATCH")).status).toBe(400);
   });
 
+  test("manages encrypted download nodes through Admin without legacy environment fallback", async () => {
+    const app = fixture();
+    app.env.DOWNLOAD_NODES = "https://old-download.example.com";
+    app.env.DOWNLOAD_NODE_SECRET = "old-runtime-secret-that-must-be-ignored-123";
+    const before = await resolveBindings(app.env);
+    expect(before.DOWNLOAD_NODES).toBe("");
+    expect(before.DOWNLOAD_NODE_SECRET).toBeUndefined();
+
+    const cookie = await app.login();
+    const path = "/settings/download-nodes";
+    const validNodes = ["https://dl1.example.com", "https://dl2.example.com:8443"];
+    const sharedSecret = "manually-provided-shared-secret-with-48-characters";
+
+    const withoutSecret = await app.post(path, { nodes: validNodes }, cookie, "PATCH");
+    expect(withoutSecret.status).toBe(400);
+    expect((await readAppSettings(app.env))).toBeNull();
+
+    const wrongOrigin = await app.request("/private/api" + path, {
+      method: "PATCH", headers: { Cookie: cookie, "Content-Type": "application/json",
+        Origin: "https://evil.example.test" },
+      body: JSON.stringify({ nodes: validNodes, secret: sharedSecret }),
+    });
+    expect(wrongOrigin.status).toBe(403);
+    const unauthenticated = await app.request("/private/api" + path, {
+      method: "PATCH", headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ nodes: validNodes, secret: sharedSecret }),
+    });
+    expect(unauthenticated.status).toBe(401);
+
+    for (const invalid of [
+      ["http://dl1.example.com"], ["https://user:pass@dl1.example.com"],
+      ["https://dl1.example.com/path"], ["https://dl1.example.com", "https://dl1.example.com/"],
+      Array.from({ length: 17 }, (_, index) => `https://dl${index}.example.com`),
+    ]) {
+      expect((await app.post(path, { nodes: invalid, secret: sharedSecret }, cookie, "PATCH")).status).toBe(400);
+    }
+    expect((await app.post(path, { nodes: validNodes, secret: "weak" }, cookie, "PATCH")).status).toBe(400);
+    expect((await app.post(path, { nodes: validNodes, secret: sharedSecret, bucket: "injected" },
+      cookie, "PATCH")).status).toBe(400);
+
+    const saved = await app.post(path, { nodes: validNodes, secret: sharedSecret }, cookie, "PATCH");
+    expect(saved.status).toBe(200);
+    expect((await readAppSettings(app.env))?.downloadNodes).toEqual(validNodes);
+    expect((await readAppSettings(app.env))?.downloadNodeSecret).toBe(sharedSecret);
+    const row = await app.env.DB.prepare("SELECT payload FROM app_settings WHERE id = 1")
+      .first<{ payload: string }>();
+    expect(row!.payload).not.toContain(sharedSecret);
+
+    const response = await app.request("/private/api/settings", { headers: { Cookie: cookie } });
+    const publicSettings = await response.json() as Record<string, unknown>;
+    expect(publicSettings.downloadNodes).toEqual(validNodes);
+    expect(publicSettings.downloadNodeSecretConfigured).toBe(true);
+    expect(JSON.stringify(publicSettings)).not.toContain(sharedSecret);
+
+    const active = await resolveBindings(app.env);
+    expect(active.DOWNLOAD_NODES).toBe(validNodes.join(","));
+    expect(active.DOWNLOAD_NODE_SECRET).toBe(sharedSecret);
+
+    expect((await app.post(path, { nodes: [validNodes[0]] }, cookie, "PATCH")).status).toBe(200);
+    expect((await readAppSettings(app.env))?.downloadNodeSecret).toBe(sharedSecret);
+    const rotatedSecret = "rotated-secret-with-at-least-thirty-two-characters";
+    expect((await app.post(path, { nodes: [validNodes[0]], secret: rotatedSecret },
+      cookie, "PATCH")).status).toBe(200);
+    expect((await resolveBindings(app.env)).DOWNLOAD_NODE_SECRET).toBe(rotatedSecret);
+
+    expect((await app.post(path, { nodes: [] }, cookie, "PATCH")).status).toBe(200);
+    const disabled = await resolveBindings(app.env);
+    expect(disabled.DOWNLOAD_NODES).toBe("");
+    expect((await readAppSettings(app.env))?.downloadNodeSecret).toBe(rotatedSecret);
+    expect((await app.post("/settings", { virusTotalApiKey: "VT_KEY" },
+      cookie, "PATCH")).status).toBe(200);
+    expect((await readAppSettings(app.env))?.downloadNodes).toEqual([]);
+    expect((await readAppSettings(app.env))?.downloadNodeSecret).toBe(rotatedSecret);
+  });
+
   test("removes unused IDs and checks permissions on every mutation", async () => {
     const app = fixture();
     const cookie = await app.login();
@@ -201,6 +277,7 @@ describe("encrypted storage configurations", () => {
     expect((await app.post("/settings", { virusTotalApiKey: "new-key" }, cookie, "PATCH")).status)
       .toBe(200);
     const current = await app.request("/private/api/settings", { headers: { Cookie: cookie } });
-    expect(await current.json()).toEqual({ storages: [], storageUsage: [], virusTotalEnabled: true });
+    expect(await current.json()).toEqual({ storages: [], storageUsage: [], virusTotalEnabled: true,
+      downloadNodes: [], downloadNodeSecretConfigured: false });
   });
 });

@@ -1,6 +1,7 @@
 import { b64, unb64 } from "./crypto";
 import { validStorageId, type Bindings, type StorageConfig } from "./model";
 import { validAwsBucket, awsS3ObjectUrl } from "./object-store";
+import { parseDownloadNodeOrigins } from "./download-node";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -10,6 +11,8 @@ const context = "tuckbox/app-settings/v1";
 export interface AppSettings {
   storages: StorageConfig[];
   virusTotalApiKey?: string;
+  downloadNodes?: string[];
+  downloadNodeSecret?: string;
 }
 
 export function validateStorage(storage: StorageConfig): void {
@@ -82,6 +85,14 @@ export function validateSettings(settings: AppSettings): void {
       (typeof settings.virusTotalApiKey !== "string" || settings.virusTotalApiKey.length > 256)) {
     throw new Error("Invalid VirusTotal key");
   }
+  if (settings.downloadNodes !== undefined) {
+    parseDownloadNodeOrigins(settings.downloadNodes);
+  }
+  if (settings.downloadNodeSecret !== undefined &&
+      (typeof settings.downloadNodeSecret !== "string" ||
+        !/^[\x21-\x7e]{32,256}$/.test(settings.downloadNodeSecret))) {
+    throw new Error("Invalid download node secret");
+  }
 }
 
 async function derive(master: string, purpose: string): Promise<Uint8Array<ArrayBuffer>> {
@@ -131,6 +142,8 @@ function toSettings(raw: Record<string, unknown>): AppSettings {
   const settings: AppSettings = {
     storages: raw.storages as StorageConfig[],
     ...(raw.virusTotalApiKey ? { virusTotalApiKey: raw.virusTotalApiKey as string } : {}),
+    ...(raw.downloadNodes !== undefined ? { downloadNodes: raw.downloadNodes as string[] } : {}),
+    ...(raw.downloadNodeSecret !== undefined ? { downloadNodeSecret: raw.downloadNodeSecret as string } : {}),
   };
   validateSettings(settings);
   return settings;
@@ -174,5 +187,7 @@ export async function resolveBindings(env: Bindings): Promise<Bindings> {
     ADMIN_AUTH_REVISION: b64(new Uint8Array(revision)),
     STORAGES: settings?.storages ?? [],
     VIRUSTOTAL_API_KEY: settings?.virusTotalApiKey,
+    DOWNLOAD_NODES: (settings?.downloadNodes ?? []).join(","),
+    DOWNLOAD_NODE_SECRET: settings?.downloadNodeSecret,
   });
 }
