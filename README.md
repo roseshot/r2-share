@@ -134,7 +134,7 @@ bun test
 bun run build
 ~~~
 
-The dev command initializes **local** D1. It does not migrate the remote database. `bun run build` requires the two D1 environment variables. See the [Development guide](docs/development.md) for details, including current lockfile limitations.
+The dev command initializes **local** D1. It does not migrate the remote database. `bun run build` requires the two D1 environment variables. See the [Development guide](docs/development.md) for reproducible installs using the committed `bun.lock`.
 
 ## Security notes
 

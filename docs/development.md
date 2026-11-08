@@ -100,7 +100,7 @@ The [CI workflow](../.github/workflows/ci.yml) runs on pushes to `main` and pull
 
 CI uses a synthetic D1 UUID and **does not** migrate or publish a production Worker. Cloudflare production deployments are a separate process; see [Deployment](deployment.md).
 
-**Dependency determinism:** There is currently **no committed `bun.lock`**. `bun install` may resolve newer versions allowed by `package.json`, and CI is not strictly reproducible. For future reproducibility, generate and commit the Bun lockfile, then change CI to `bun install --frozen-lockfile` (or `bun ci`). Do not claim CI is locked until that change is made.
+**Reproducible installs:** The repository commits the Bun text lockfile (`bun.lock`). CI installs Bun 1.4.4 and runs `bun install --frozen-lockfile`; CI fails if `package.json` and the lockfile disagree. For local development, use `bun install --frozen-lockfile` to reproduce the pinned dependencies. When updating packages, run `bun install` with the supported Bun version and commit the updated `bun.lock` alongside `package.json`.
 
 ## Dependabot and automatic merging
 

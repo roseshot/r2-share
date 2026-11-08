@@ -135,6 +135,19 @@ describe("repository conventions", () => {
     expect(worker).toContain('app.get("/assets/*"');
   });
 
+  test("pins Bun dependency resolution in the committed lockfile", () => {
+    const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+    const lock = readFileSync(resolve(root, "bun.lock"), "utf8");
+    const ci = readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8");
+    expect(lock).toContain('"lockfileVersion": 2');
+    expect(lock).toContain('"name": "tuckbox"');
+    for (const name of Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })) {
+      expect(lock, name).toContain(JSON.stringify(name) + ":");
+    }
+    expect(ci).toContain("run: bun install --frozen-lockfile");
+    expect(ci).toContain("npm install --global bun@1.4.4");
+  });
+
   test("interactive components use Base UI, not Radix Slot", () => {
     const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
     expect(packageJson.dependencies["@base-ui/react"]).toBeDefined();
