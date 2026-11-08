@@ -36,8 +36,9 @@ func (s *server) routes() http.Handler {
 	})
 	mux.HandleFunc("/v1/download", s.download)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.TLS == nil || !strings.EqualFold(r.TLS.ServerName, s.hostname) ||
-			!strings.EqualFold(r.Host, s.domain) {
+		if !strings.EqualFold(r.Host, s.domain) ||
+			(s.tlsConfig != nil && (r.TLS == nil || !strings.EqualFold(r.TLS.ServerName, s.hostname))) ||
+			(s.tlsConfig == nil && r.TLS != nil) {
 			w.Header().Set("Cache-Control", "no-store")
 			http.Error(w, "unrecognized download node domain", http.StatusMisdirectedRequest)
 			return

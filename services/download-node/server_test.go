@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/tls"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -66,7 +67,7 @@ func sealRawSource(plaintext []byte) string {
 func testNode(reply transportFunc) (*server, claims) {
 	now := time.Unix(1800000000, 0)
 	node := &server{secret: []byte(testSecret), domain: "download.example.com", hostname: "download.example.com",
-		httpClient: &http.Client{Transport: reply}, now: func() time.Time { return now }}
+		tlsConfig: &tls.Config{}, httpClient: &http.Client{Transport: reply}, now: func() time.Time { return now }}
 	source := signedSource{
 		Get: testSignedURL("s3.us-west-004.backblazeb2.com", "private-backups", "us-west-004", "a", now),
 		Head: testSignedURL("s3.us-west-004.backblazeb2.com", "private-backups", "us-west-004", "b", now),

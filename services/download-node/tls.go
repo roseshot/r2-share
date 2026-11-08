@@ -37,8 +37,11 @@ func parseNodeDomain(raw string) (hostname, audience string, err error) {
 }
 
 func loadTLSConfig(hostname, certificateFile, keyFile string) (*tls.Config, error) {
+	if certificateFile == "" && keyFile == "" {
+		return nil, nil
+	}
 	if certificateFile == "" || keyFile == "" {
-		return nil, errors.New("TLS_CERT_FILE and TLS_KEY_FILE are required")
+		return nil, errors.New("TLS_CERT_FILE and TLS_KEY_FILE must both be set or both be unset")
 	}
 	certificate, err := tls.LoadX509KeyPair(certificateFile, keyFile)
 	if err != nil {

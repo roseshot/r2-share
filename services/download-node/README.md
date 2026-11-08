@@ -36,22 +36,30 @@ continue through the Worker.
 
 ## Quick start
 
-1. Point a DNS record at each node and install a valid TLS certificate chain
-   and private key for its hostname. The Go node terminates HTTPS itself.
+1. Point a DNS record at the node's public hostname. Choose one listener mode:
+   - **Native HTTPS**: set **both** `TLS_CERT_FILE` and `TLS_KEY_FILE` to
+     readable PEM certificate-chain/private-key paths. The node validates the
+     certificate hostname and validity dates at startup.
+   - **HTTP behind an HTTPS reverse proxy**: leave **both** TLS variables unset.
+     Terminate public HTTPS at your reverse proxy and forward requests to the
+     node's internal HTTP listener. Preserve the original `Host` header. Restrict
+     direct access to the HTTP port (for example, bind/publish it on loopback).
+     Setting only one TLS file is a startup error.
 2. On each Go node, configure:
-   - `NODE_DOMAIN`: its public hostname (for example, `dl1.example.com`).
-     If the Admin HTTPS origin uses a non-default port, include it here as
-     `dl1.example.com:8443`. This must match the HTTP `Host` exactly.
-   - `TLS_CERT_FILE` and `TLS_KEY_FILE`: readable PEM certificate-chain and
-     private-key paths. The node validates the certificate's hostname and
-     validity dates at startup.
-   - `LISTEN_ADDR`: TLS listen address, default `:8443`.
+   - `NODE_DOMAIN`: the **public HTTPS** hostname (for example,
+     `dl1.example.com`). If the public Admin HTTPS origin uses a non-default
+     port, include it here as `dl1.example.com:8443`. The HTTP `Host` must
+     match this value, including the port when present.
+   - `LISTEN_ADDR`: listener address. Defaults to `:8080` without TLS and
+     `:8443` with native TLS. An explicitly set address overrides the default.
    - `DOWNLOAD_NODE_SECRET`: the same secret configured in TuckBox Admin,
      at least 32 characters.
    - `CORS_ORIGIN`: optional HTTPS origin for cross-origin fetch clients.
-3. In **TuckBox Admin → Download nodes**, add each HTTPS node origin, then
-   enter a shared secret or select **Generate secret**. Copy it before saving.
-4. Set the same saved secret as `DOWNLOAD_NODE_SECRET` on **every Go node**.
+3. In **TuckBox Admin → Download nodes**, add the **public HTTPS** origin,
+   whether TLS is terminated at the node or at a reverse proxy. Plain HTTP
+   origins remain unsupported by the Worker. Enter a shared secret or select
+   **Generate secret**. Copy it before saving.
+4. Set the saved secret as `DOWNLOAD_NODE_SECRET` on **every Go node**.
    The Worker reads the encrypted configuration from D1. Changing the secret
    requires updating every node.
 
@@ -70,19 +78,30 @@ go build -o tuckbox-download-node .
 ./tuckbox-download-node
 ```
 
-Docker build and run:
+Docker build and run in **HTTP mode behind a TLS reverse proxy**:
 
 ```sh
 docker build -t tuckbox-download-node ./services/download-node
+docker run --rm -p 127.0.0.1:8080:8080 --env-file ./services/download-node/.env \
+  tuckbox-download-node
+```
+
+The example `.env` omits both TLS file variables and sets `LISTEN_ADDR=:8080`.
+Configure your reverse proxy's upstream as `http://127.0.0.1:8080` and its
+public origin as `https://<NODE_DOMAIN>`, preserving the public `Host` header.
+
+For **native HTTPS**, set both TLS file variables and `LISTEN_ADDR=:8443`:
+
+```sh
 docker run --rm -p 8443:8443 --env-file ./services/download-node/.env \
   --mount type=bind,src="$(pwd)/certs",dst=/certs,readonly tuckbox-download-node
 ```
 
 Copy `.env.example` to `.env` on the server, replace placeholders, and
-**never commit `.env`**. Mount certificates read-only and ensure the process
-user (UID 65532 in Docker) can read the private key. Check
-`https://<NODE_DOMAIN>/healthz` with the configured hostname and a trusted
-certificate. Do not send credentials or certificates to the Worker.
+**never commit `.env`**. For native HTTPS, mount certificates read-only and
+ensure the process user (UID 65532 in Docker) can read the private key.
+Check `https://<NODE_DOMAIN>/healthz` through the public HTTPS endpoint.
+Do not send credentials or certificates to the Worker.
 
 ### Storage access
 
@@ -109,7 +128,8 @@ the same file on the same node. This is **distribution**, not active health
 balancing; a down node will make downloads assigned to it fail until the
 configuration is changed. Do not use Cloudflare-proxied/orange-cloud node
 hostnames if your goal is to move download egress off Cloudflare; instead use
-DNS-only hostnames pointed at the Go servers. Each node terminates TLS.
+DNS-only hostnames pointed at the Go servers or at their dedicated TLS reverse proxies.
+The public endpoint must always use HTTPS.
 
 ### Security and operational notes
 
@@ -122,10 +142,12 @@ DNS-only hostnames pointed at the Go servers. Each node terminates TLS.
   access logs containing query strings. Never log download tokens.
 - The node accepts only `tuckbox/<UUID v4>` object keys. It never accepts arbitrary upstream
   URLs, and the bucket stays private.
-- `NODE_DOMAIN` is mandatory. The TLS handshake rejects absent or mismatched
-  SNI, and all HTTP paths (including `/healthz`) reject a mismatched `Host`
-  with HTTP 421. Plain HTTP is not served. The certificate must cover the
-  configured DNS hostname; direct-IP and unknown-host requests are rejected.
+- `NODE_DOMAIN` is mandatory. In native HTTPS mode, the TLS handshake rejects
+  absent or mismatched SNI and the certificate must cover the configured DNS
+  hostname. In **both** modes, requests with a mismatched `Host` (including
+  `/healthz`) return HTTP 421. Direct-IP and unknown-host requests are
+  rejected. In HTTP mode the Go listener is **not encrypted**: terminate public
+  HTTPS at a trusted reverse proxy and isolate the HTTP hop from the internet.
   Keep clocks synchronized using NTP.
 - Keep the node's shared secret outside Git. Change it in Admin and update
   all nodes together. The Worker stores the secret encrypted in D1 and does

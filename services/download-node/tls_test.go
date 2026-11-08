@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -91,6 +92,9 @@ func TestNodeDomainValidation(t *testing.T) {
 }
 
 func TestTLSCertificateValidation(t *testing.T) {
+	if config, err := loadTLSConfig("download.example.com", "", ""); err != nil || config != nil {
+		t.Fatalf("TLS should be disabled when neither file is configured: config=%v err=%v", config, err)
+	}
 	certFile, keyFile, _ := testCertificateFiles(t, "download.example.com")
 	config, err := loadTLSConfig("download.example.com", certFile, keyFile)
 	if err != nil || config.MinVersion != tls.VersionTLS12 {
@@ -106,6 +110,72 @@ func TestTLSCertificateValidation(t *testing.T) {
 		if _, err := loadTLSConfig(tt.domain, tt.certFile, tt.keyFile); err == nil {
 			t.Errorf("accepted invalid certificate settings for %q", tt.domain)
 		}
+	}
+}
+
+
+func TestHTTPListenerWithoutTLSFiles(t *testing.T) {
+	t.Setenv("NODE_DOMAIN", "download.example.com")
+	t.Setenv("TLS_CERT_FILE", "")
+	t.Setenv("TLS_KEY_FILE", "")
+	t.Setenv("DOWNLOAD_NODE_SECRET", testSecret)
+	t.Setenv("CORS_ORIGIN", "")
+
+	node, err := loadServer()
+	if err != nil {
+		t.Fatalf("HTTP configuration rejected: %v", err)
+	}
+	if node.tlsConfig != nil {
+		t.Fatal("HTTP mode unexpectedly enabled TLS")
+	}
+	remote := httptest.NewServer(node.routes())
+	defer remote.Close()
+
+	for _, tt := range []struct {
+		host, path string
+		status int
+	}{
+		{"download.example.com", "/healthz", http.StatusOK},
+		{"other.example.com", "/healthz", http.StatusMisdirectedRequest},
+		{"download.example.com", "/v1/download", http.StatusForbidden},
+	} {
+		req, err := http.NewRequest(http.MethodGet, remote.URL+tt.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = tt.host
+		response, err := remote.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != tt.status {
+			t.Errorf("HTTP host %q path %q: got %d, want %d", tt.host, tt.path, response.StatusCode, tt.status)
+		}
+	}
+
+	// HTTP mode still verifies the signed grant before streaming private content.
+	stub, claims := testNode(func(*http.Request) (*http.Response, error) {
+		return upstream(http.StatusOK, "sample", nil), nil
+	})
+	node.httpClient = stub.httpClient
+	node.now = stub.now
+	request, err := http.NewRequest(http.MethodGet, remote.URL+"/v1/download?token="+grant(claims), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = node.domain
+	response, err := remote.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || string(body) != "sample" {
+		t.Fatalf("authorized HTTP download returned %d %q", response.StatusCode, body)
 	}
 }
 

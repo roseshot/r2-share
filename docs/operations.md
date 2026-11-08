@@ -31,7 +31,7 @@ TuckBox is a self-hosted file-sharing service, not a managed security product. O
 - Admin entry path obscurity is **not** a substitute for a strong password, HTTPS, and edge-level abuse controls.
 - The Worker has login and access-code rate-limit bindings; add suitable Cloudflare WAF / edge policies where needed. Short share IDs can be enumerated.
 - Expiration checks happen at request time, but already downloaded data cannot be revoked.
-- HTTPS and trusted TLS certificates are required on optional Go nodes. Keep DNS-only hostnames if the goal is to avoid routing download egress through Cloudflare.
+- Optional Go nodes must be exposed publicly over HTTPS, either with native TLS or behind a trusted HTTPS reverse proxy forwarding to the node's private HTTP listener. Do not expose plain HTTP to the internet. Keep DNS-only hostnames if the goal is to avoid routing download egress through Cloudflare.
 
 ### VirusTotal privacy
 
@@ -84,13 +84,13 @@ Rotate B2/R2/S3 credentials in **Object storage settings** without changing the 
 
 Important operational distinctions:
 
-- Nodes terminate HTTPS themselves and require a valid `NODE_DOMAIN`, `TLS_CERT_FILE` and `TLS_KEY_FILE`.
+- Nodes require `NODE_DOMAIN` and `DOWNLOAD_NODE_SECRET`. Set both `TLS_CERT_FILE` and `TLS_KEY_FILE` for native HTTPS; omit both to serve HTTP behind a TLS-terminating reverse proxy. Setting only one fails startup. A reverse proxy must preserve the public `Host` header.
 - The Worker sends a short-lived **HMAC-signed**, AES-256-GCM-encrypted grant, valid at most **90 seconds**, containing presigned S3 GET/HEAD URLs. Nodes decrypt the presigned object URLs in the grant, but never receive long-lived bucket credentials.
 - Only authorized **GET downloads** are redirected. HEAD availability checks, previews, metadata, uploads and admin actions continue through the Worker.
 - A valid grant can still be reused until expiry, including briefly after a link is revoked. Never log grant-bearing query strings.
 - Selection across up to **16** nodes is based on a stable file-ID hash, not health. **There is no automatic failover**; monitor each hostname, certificates, resource limits, bandwidth, and upstream errors.
 - Public node origins should be **DNS-only (unproxied)** if the objective is to offload Cloudflare download traffic. Cloudflare-proxied nodes still carry traffic through Cloudflare.
-- Keep the TLS private key and shared download secret out of Git, and synchronize clocks and certificate renewal.
+- Keep the shared download secret and any TLS private key out of Git; synchronize clocks and renew certificates wherever TLS terminates.
 
 ## Known limits and considerations
 
