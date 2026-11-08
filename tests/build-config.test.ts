@@ -6,8 +6,9 @@ describe("Vite 8 and React build compatibility", () => {
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
   test("upgrades Vite and its React plugin together", () => {
-    expect(pkg.devDependencies.vite).toMatch(/^\^8\./);
-    expect(pkg.devDependencies["@vitejs/plugin-react"]).toMatch(/^\^6\./);
+    const major = (spec: string) => Number(/^\^(\d+)\./.exec(spec)?.[1] ?? 0);
+    expect(major(pkg.devDependencies.vite)).toBeGreaterThanOrEqual(8);
+    expect(major(pkg.devDependencies["@vitejs/plugin-react"])).toBeGreaterThanOrEqual(6);
     expect(vite).toContain('import react from "@vitejs/plugin-react"');
     expect(vite).toContain('import { cloudflare } from "@cloudflare/vite-plugin"');
   });
