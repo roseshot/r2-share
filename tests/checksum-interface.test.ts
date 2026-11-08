@@ -173,10 +173,11 @@ describe("checksum display and platform instructions", () => {
     const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
     const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
     const source = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
-    expect(html).toContain("fonts.googleapis.com/css2?family=JetBrains+Mono");
-    expect(html).toContain("display=swap");
-    expect(html).toContain("fonts.gstatic.com");
-    expect(css).toContain('--font-mono: "JetBrains Mono"');
+    const entry = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
+    expect(html).not.toContain("fonts.googleapis.com");
+    expect(html).not.toContain("fonts.gstatic.com");
+    expect(entry).toContain('import "@fontsource-variable/jetbrains-mono/wght.css"');
+    expect(css).toContain('--font-mono: "JetBrains Mono Variable"');
     expect(source).toContain("font-mono");
     expect(source).toContain('{checksums.sha256}');
     expect(source).toContain('{sha256}');
@@ -184,7 +185,7 @@ describe("checksum display and platform instructions", () => {
 
   test("uses sans-serif for interface text and monospace for code", () => {
     const styles = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
-    expect(styles).toContain('--font-sans: "Inter", "SF Pro Display"');
+    expect(styles).toContain("--font-sans: ui-sans-serif, system-ui");
     const code = readFileSync(new URL("../src/features/files/file-checksums.tsx", import.meta.url), "utf8");
     expect(code).toContain("font-mono");
   });
