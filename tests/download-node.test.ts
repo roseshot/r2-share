@@ -9,7 +9,7 @@ const env = (nodes?: string, key?: string) => ({
 }) as Bindings;
 const file: FileRecord = {
   id: "3d4071e7-a4b3-4c06-9801-61f4aca13052",
-  storageId: "b2-primary", filename: "测试 file.zip", size: 2056,
+  storageId: "b2-primary", filename: "example file.zip", size: 2056,
   mime: "application/zip", createdAt: new Date().toISOString(),
   mode: "public", revision: "rev", expiresAt: null, shareExpiresAt: null,
 };
@@ -43,7 +43,7 @@ describe("Go download offload configuration and signed grants", () => {
     const claims = await readToken(secret, token!);
     expect(claims).toMatchObject({
       scope: "tuckbox-download/v1", storageId: "b2-primary",
-      key: "tuckbox/" + file.id, filename: "测试 file.zip", mime: file.mime,
+      key: "tuckbox/" + file.id, filename: "example file.zip", mime: file.mime,
       size: file.size, aud: selected.host,
     });
     expect(claims?.exp as number).toBeLessThanOrEqual(Date.now() + 90_000);

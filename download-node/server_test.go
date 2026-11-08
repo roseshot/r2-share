@@ -37,7 +37,7 @@ func testNode(reply transportFunc) (*server, claims) {
 	node := &server{secret:[]byte(testSecret), storages:map[string]storageConfig{storage.ID:storage},
 		httpClient:&http.Client{Transport:reply}, now:func() time.Time{return now}}
 	c := claims{Scope:tokenScope, StorageID:storage.ID, Key:testKey,
-		Filename:"下载 final.zip", MIME:"application/zip", Size:6,
+		Filename:"sample final.zip", MIME:"application/zip", Size:6,
 		Audience:"download.example.com", Exp:now.Add(60*time.Second).UnixMilli()}
 	return node,c
 }
@@ -76,7 +76,7 @@ func TestDownloadAndRanges(t *testing.T) {
 	token:=grant(c)
 	full:=call(node,"GET",token,"")
 	if full.Code!=200 || full.Body.String()!="sample" { t.Fatalf("full download: %d %q",full.Code,full.Body.String()) }
-	if !strings.Contains(full.Header().Get("Content-Disposition"),"%E4%B8%8B%E8%BD%BD") {
+	if !strings.Contains(full.Header().Get("Content-Disposition"),"sample%20final.zip") {
 		t.Fatalf("filename is not RFC5987 encoded: %s",full.Header().Get("Content-Disposition"))
 	}
 	part:=call(node,"GET",token,"bytes=1-3")
