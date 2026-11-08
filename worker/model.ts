@@ -9,6 +9,9 @@ export interface Bindings {
   SESSION_SECRET: string;
   CODE_ENCRYPTION_KEY: string;
   VIRUSTOTAL_API_KEY?: string;
+  /** HTTPS origins, comma-separated; optional GET download offload. */
+  DOWNLOAD_NODES?: string;
+  DOWNLOAD_NODE_SECRET?: string;
   LOGIN_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> };
   CODE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> };
 }

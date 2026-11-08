@@ -10,11 +10,12 @@ Private, self-hosted file sharing built on **Cloudflare Workers**, **D1**, **Bac
 - Create public upload pages with time expiry and/or a maximum number of successful uploads; contributors need no admin login.
 - Revoke or update one link without affecting other links or duplicating the stored object.
 - Keep file retention separate from link expiration; manage file deletion independently.
-- Download any supported file or preview images, PDFs, text, audio, and video in the browser. Archive files (ZIP, TAR, TGZ, etc.) are download-only; their contents are not parsed or previewed.
+- Download files either through the Worker or **optional independent Go download nodes** with short-lived signed redirects; preview images, PDFs, text, audio, and video in the browser. Archive files (ZIP, TAR, TGZ, etc.) are download-only; their contents are not parsed or previewed.
 - Verify uploaded content with Worker-computed **SHA-256**; queue VirusTotal hash reputation lookups on upload and display saved reports on public shares.
 - Apply database changes through versioned SQL migrations.
 
-The Worker handles authorization and streams files from private S3-compatible buckets. Storage credentials remain server-side.
+The Worker handles authorization and normally streams files from private S3-compatible buckets.
+Optional Go nodes can offload only authenticated GET downloads; storage credentials remain server-side.
 
 ## How it works
 
@@ -408,9 +409,38 @@ This is a post-CI merge action, not GitHub's per-PR `auto_merge` toggle. Protect
 
 ## Download and preview experience
 
-Downloads and media previews support single HTTP byte ranges, forwarded through the
-authorized Worker to the configured B2/R2/AWS S3 bucket. The Worker rejects invalid
-ranges with HTTP 416 and does not provide multipart byte-range responses.
+Downloads and media previews support single HTTP byte ranges. Without offloading,
+the authorized Worker streams byte ranges from B2/R2/AWS S3 as before.
+
+### Optional Go download nodes
+
+An independently deployable **Go 1.23 download node** lives in
+[download-node/](download-node/README.md), including a Dockerfile and detailed
+configuration. To enable it, deploy one or more nodes on HTTPS domains, assign
+the **same** 32+ character `DOWNLOAD_NODE_SECRET` in the Worker and nodes, and
+set the Worker's optional `DOWNLOAD_NODES` secret to a comma-separated list:
+
+```text
+DOWNLOAD_NODES=https://dl1.example.com,https://dl2.example.com
+```
+
+Both values are **optional**, so existing deployments work without changes.
+After the Worker validates a share or admin session, GET downloads receive a
+**307 redirect with an HMAC-signed, at-most-90-second grant** for the selected
+Go node. The node privately fetches only the authorized object by storage ID,
+validates S3 response length/range, and streams it to the browser. File IDs are
+hashed to distribute downloads consistently across up to 16 nodes; range
+resume for a file therefore selects the same node. Downloads support 206 and
+416; HEAD preflight and all previews remain directly on the Worker.
+
+Each Go node needs **read-only S3 GetObject credentials**, configured separately
+for the same Storage IDs as TuckBox Admin. Do not expose its storage secret
+config, HMAC secret, or signed URLs in logs. Put a TLS reverse proxy in front of
+the Go HTTP listener. **Use DNS-only (non-Cloudflare-proxied) node hostnames**
+to offload Cloudflare bandwidth; a Cloudflare-proxied download node still
+transits the CDN. There is no automatic health failover: monitor each node.
+A signed grant can be reused until expiry (including briefly after revocation).
+See [Go node setup](download-node/README.md) for deployment and security notes.
 
 The share page shows **Server overloaded. Please try again.** when a public
 download is unavailable, without disclosing whether the share ID exists.

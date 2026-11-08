@@ -3,6 +3,7 @@ import { monitorUpload } from "./integrity";
 import { importRemoteFile, RemoteImportError, validateRemoteUrl } from "./url-import";
 import { previewFormat } from "../src/preview-types";
 import { parseByteRange } from "./ranges";
+import { redirectedDownload } from "./download-node";
 import { getCachedVirusTotalReport, processVirusTotalQueue } from "./virustotal";
 import { generatePlaceholderShare } from "./placeholder-share";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
@@ -131,12 +132,21 @@ app.post("/api/files/:id/unlock", async c => {
   return c.json({ ok: true });
 });
 
-async function streamFile(env: Bindings, record: FileRecord, preview = false, request?: Request): Promise<Response> {
+async function streamFile(
+  env: Bindings, record: FileRecord, preview = false, request?: Request,
+  shareExpiresAt: string | null = null,
+): Promise<Response> {
   const format = previewFormat(record.filename, record.mime);
   if (preview && (!format || !format.contentType)) {
     return jsonError("Preview not supported for this file type", 400);
   }
   if (!isStorageConfigured(env, record.storageId)) return jsonError("Storage ID is not configured", 503);
+  // Keep HEAD preflights and previews on the Worker. Only already-authorized
+  // GET downloads are redirected to a signed, short-lived Go transfer node.
+  if (!preview && request?.method === "GET") {
+    const redirect = await redirectedDownload(env, record, shareExpiresAt);
+    if (redirect) return redirect;
+  }
   const store = getObjectStore(env, record.storageId);
   const key = dataKey(record.id);
   const filename = encodeURIComponent(record.filename);
@@ -198,7 +208,8 @@ for (const action of ["preview", "download"] as const) {
       if (getCookie(c, downloadCookie(id))) clearShareAuthorization(c, id);
       return c.json({ error: "Enter the access code first" }, 403);
     }
-    return streamFile(c.env, result.record, action === "preview", c.req.raw);
+    return streamFile(c.env, result.record, action === "preview", c.req.raw,
+      result.share.expiresAt);
   });
 }
 

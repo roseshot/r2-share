@@ -22,3 +22,7 @@ coverage/
 
 # Generated runtime binding configuration
 wrangler.generated.jsonc
+
+# Locally built Go download node binary
+download-node/download-node
+download-node/tuckbox-download-node

@@ -22,3 +22,22 @@ jobs:
           D1_DATABASE_NAME: ci-d1
           D1_DATABASE_ID: 00000000-0000-4000-8000-000000000001
         run: bun run build
+
+  download-node:
+    name: Go download node
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: download-node
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: download-node/go.mod
+          cache: false
+      - name: Test Go node
+        run: go test ./...
+      - name: Vet Go node
+        run: go vet ./...
+      - name: Build Go node
+        run: go build .

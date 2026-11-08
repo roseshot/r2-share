@@ -2,7 +2,7 @@ import { createTestDatabase } from "./d1-helper";
 import { describe, expect, test } from "bun:test";
 import handler from "../worker/index";
 import { parseByteRange } from "../worker/ranges";
-import { b64, encryptCode } from "../worker/crypto";
+import { b64, encryptCode, readToken } from "../worker/crypto";
 import { bindTestSettings } from "../worker/app-config";
 import { bindObjectStore } from "../worker/object-store";
 import { saveRecord } from "../worker/storage";
@@ -13,12 +13,16 @@ const origin = "https://share.example.test";
 const fileId = "ABCDEF0123456789";
 const primaryId = "ABCdef1234";
 
-function fixture(protectedLink = false) {
+function fixture(protectedLink = false, offload = false) {
   const env = {
     DB: createTestDatabase(), ADMIN_PATH: "secret-admin", ADMIN_PASSWORD: "password123",
     SESSION_SECRET: "s".repeat(48), CODE_ENCRYPTION_KEY: b64(new Uint8Array(32)),
     STORAGES: [{ id: "primary-b2", backend: "b2", bucket: "private-files",
       region: "us-west-004", keyId: "b2-key", applicationKey: "b2-secret" }],
+    ...(offload ? {
+      DOWNLOAD_NODES: "https://dl-a.example.com,https://dl-b.example.com",
+      DOWNLOAD_NODE_SECRET: "download-test-key-with-at-least-32-characters",
+    } : {}),
     CODE_LIMITER: { limit: async () => ({ success: true }) },
     LOGIN_LIMITER: { limit: async () => ({ success: true }) },
     ASSETS: { fetch: async () => new Response("<!doctype html>") },
@@ -104,6 +108,59 @@ describe("download range and availability checks", () => {
     expect(full.status).toBe(200);
     expect(await full.text()).toBe("sample");
   });
+  test("redirects authenticated GET downloads to one stable node with signed short-lived grants", async () => {
+    const app = fixture(false, true);
+    await app.createFile();
+    const first = await app.request("/api/files/" + primaryId + "/download");
+    expect(first.status).toBe(307);
+    expect(first.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(first.headers.get("Referrer-Policy")).toBe("no-referrer");
+    const location = new URL(first.headers.get("Location")!);
+    expect(["dl-a.example.com", "dl-b.example.com"]).toContain(location.host);
+    expect(location.pathname).toBe("/v1/download");
+    const claims = await readToken(
+      "download-test-key-with-at-least-32-characters", location.searchParams.get("token") ?? "",
+    );
+    expect(claims).toMatchObject({
+      scope: "tuckbox-download/v1", key: dataKey(fileId), storageId: "primary-b2",
+      filename: "sample.txt", mime: "text/plain", size: 6, aud: location.host,
+    });
+    expect(claims?.exp as number).toBeLessThanOrEqual(Date.now() + 90_000);
+    const resumed = await app.request("/api/files/" + primaryId + "/download", {
+      headers: { Range: "bytes=1-3" },
+    });
+    expect(resumed.status).toBe(307);
+    expect(new URL(resumed.headers.get("Location")!).host).toBe(location.host);
+    // Preserve the existing same-origin HEAD preflight and preview path.
+    const head = await app.request("/api/files/" + primaryId + "/download", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("Content-Length")).toBe("6");
+    const preview = await app.request("/api/files/" + primaryId + "/preview");
+    expect(preview.status).toBe(200);
+    expect(await preview.text()).toBe("sample");
+  });
+
+  test("never redirects locked or expired links and enforces protection before minting grants", async () => {
+    const app = fixture(true, true);
+    await app.createFile();
+    const denied = await app.request("/api/files/" + primaryId + "/download");
+    expect(denied.status).toBe(403);
+    expect(denied.headers.get("Location")).toBeNull();
+    const unlocked = await app.request("/api/files/" + primaryId + "/unlock", {
+      method: "POST", headers: {
+        Origin: origin, "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ code: "test-code" }),
+    });
+    expect(unlocked.status).toBe(200);
+    const cookie = unlocked.headers.get("set-cookie")?.split(";")[0];
+    expect(cookie).toBeTruthy();
+    const accepted = await app.request("/api/files/" + primaryId + "/download", {
+      headers: { Cookie: cookie! },
+    });
+    expect(accepted.status).toBe(307);
+  });
+
   test("returns 416 for invalid byte ranges and protects HEAD", async () => {
     const publicApp = fixture();
     await publicApp.createFile();
