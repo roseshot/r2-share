@@ -32,7 +32,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.2.1",
     "tailwindcss": "^4.1.0",
-    "typescript": "7.1.0-dev.20261103.1",
+    "typescript": "7.1.0-dev.20261104.1",
     "vite": "^8.3.5",
     "wrangler": "^4.45.0"
   }
